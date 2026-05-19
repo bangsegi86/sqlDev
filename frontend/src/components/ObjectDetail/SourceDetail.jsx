@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
+import ExplainTab from './ExplainTab.jsx';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 
@@ -37,6 +38,7 @@ export default function SourceDetail({ tab }) {
 
   const tabs = [
     ...(canAnalyze ? [{ id: 'analyzer', label: '📊 분석기' }] : []),
+    ...(canAnalyze ? [{ id: 'explain', label: '📝 설명' }] : []),
     { id: 'source', label: 'Source' },
     { id: 'properties', label: 'Properties' },
   ];
@@ -72,7 +74,16 @@ export default function SourceDetail({ tab }) {
           />
         )}
 
-{activeTab === 'source' && (
+        {activeTab === 'explain' && canAnalyze && (
+          <ExplainTab
+            connectionId={tab.connectionId}
+            schema={schema}
+            objectType={objectType}
+            name={name}
+          />
+        )}
+
+        {activeTab === 'source' && (
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}>
               <button className="btn-secondary" onClick={() => navigator.clipboard.writeText(source)} style={{ padding: '2px 8px', fontSize: 11 }}>📋 복사</button>
