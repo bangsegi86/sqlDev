@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
+import ExplainTab from './ExplainTab.jsx';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 
@@ -37,6 +38,7 @@ export default function SourceDetail({ tab }) {
 
   const tabs = [
     ...(canAnalyze ? [{ id: 'analyzer', label: '📊 분석기' }] : []),
+    ...(canAnalyze ? [{ id: 'explain', label: '🤖 AI 설명' }] : []),
     { id: 'source', label: 'Source' },
     { id: 'properties', label: 'Properties' },
   ];
@@ -65,6 +67,15 @@ export default function SourceDetail({ tab }) {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'analyzer' && canAnalyze && (
           <AnalyzerTab
+            connectionId={tab.connectionId}
+            schema={schema}
+            objectType={objectType}
+            name={name}
+          />
+        )}
+
+        {activeTab === 'explain' && canAnalyze && (
+          <ExplainTab
             connectionId={tab.connectionId}
             schema={schema}
             objectType={objectType}

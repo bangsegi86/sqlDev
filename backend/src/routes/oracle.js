@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as oracle from '../services/oracleService.js';
 import * as store from '../services/connectionStore.js';
 import { analyzePLSQL } from '../services/plsqlAnalyzer.js';
+import { explainProcedure } from '../services/explainService.js';
 
 const router = Router();
 
@@ -91,5 +92,18 @@ router.get('/:id/analyze/:schema/:type/:name', wrap(async (req, res) => {
   const result = analyzePLSQL(source, name, type);
   res.json(result);
 }));
+
+// ── AI 설명 (SSE 스트리밍)
+router.get('/:id/explain/:schema/:type/:name', async (req, res) => {
+  try {
+    const { id, schema, type, name } = req.params;
+    const source = await oracle.getSource(id, schema, type, name);
+    if (!source) { res.status(404).json({ error: 'Source not found' }); return; }
+    const analysis = analyzePLSQL(source, name, type);
+    await explainProcedure(res, source, name, type, analysis);
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;
