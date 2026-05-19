@@ -37,4 +37,5 @@ export const api = {
   getObjectProperties: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}/properties`),
   getSequenceInfo: (id, schema, name) => request(`/oracle/${id}/sequences/${encodeURIComponent(schema)}/${encodeURIComponent(name)}`),
   executeQuery: (id, sql, schema) => request(`/oracle/${id}/query`, { method: 'POST', body: { sql, schema } }),
+  analyzeProcedure: (id, schema, type, name) => request(`/oracle/${id}/analyze/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
 };

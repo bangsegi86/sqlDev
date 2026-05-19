@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as oracle from '../services/oracleService.js';
 import * as store from '../services/connectionStore.js';
+import { analyzePLSQL } from '../services/plsqlAnalyzer.js';
 
 const router = Router();
 
@@ -80,6 +81,15 @@ router.post('/:id/query', wrap(async (req, res) => {
   const { sql, schema } = req.body;
   if (!sql) return res.status(400).json({ error: 'sql is required' });
   res.json(await oracle.executeSQL(req.params.id, sql, schema));
+}));
+
+// ── PL/SQL 분석기
+router.get('/:id/analyze/:schema/:type/:name', wrap(async (req, res) => {
+  const { id, schema, type, name } = req.params;
+  const source = await oracle.getSource(id, schema, type, name);
+  if (!source) return res.status(404).json({ error: 'Source not found' });
+  const result = analyzePLSQL(source, name, type);
+  res.json(result);
 }));
 
 export default router;
