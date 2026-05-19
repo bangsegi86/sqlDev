@@ -1,0 +1,85 @@
+import { Router } from 'express';
+import * as oracle from '../services/oracleService.js';
+import * as store from '../services/connectionStore.js';
+
+const router = Router();
+
+function wrap(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+router.post('/test', wrap(async (req, res) => {
+  const { host, port, serviceName, username, password } = req.body;
+  if (!host || !serviceName || !username || !password)
+    return res.status(400).json({ error: 'host, serviceName, username, password are required' });
+  res.json(await oracle.testConnection({ host, port: Number(port) || 1521, serviceName, username, password }));
+}));
+
+router.post('/connect/:id', wrap(async (req, res) => {
+  const connInfo = await store.getById(req.params.id);
+  res.json(await oracle.connect(connInfo));
+}));
+
+router.post('/disconnect/:id', wrap(async (req, res) => {
+  res.json(await oracle.disconnect(req.params.id));
+}));
+
+router.post('/reconnect/:id', wrap(async (req, res) => {
+  const connInfo = await store.getById(req.params.id);
+  res.json(await oracle.reconnect(connInfo));
+}));
+
+router.get('/status', (req, res) => {
+  res.json(oracle.getStatus());
+});
+
+router.get('/:id/schemas', wrap(async (req, res) => {
+  res.json(await oracle.getSchemas(req.params.id));
+}));
+
+router.get('/:id/objects', wrap(async (req, res) => {
+  const { schema, type } = req.query;
+  if (!schema || !type) return res.status(400).json({ error: 'schema and type required' });
+  res.json(await oracle.getObjects(req.params.id, schema, type));
+}));
+
+router.get('/:id/tables/:schema/:name/columns', wrap(async (req, res) => {
+  res.json(await oracle.getColumns(req.params.id, req.params.schema, req.params.name));
+}));
+
+router.get('/:id/tables/:schema/:name/data', wrap(async (req, res) => {
+  const { page, limit, orderBy, orderDir } = req.query;
+  res.json(await oracle.getTableData(req.params.id, req.params.schema, req.params.name, { page, limit, orderBy, orderDir }));
+}));
+
+router.get('/:id/tables/:schema/:name/ddl', wrap(async (req, res) => {
+  res.json({ ddl: await oracle.getTableDDL(req.params.id, req.params.schema, req.params.name) });
+}));
+
+router.get('/:id/tables/:schema/:name/references', wrap(async (req, res) => {
+  res.json(await oracle.getTableReferences(req.params.id, req.params.schema, req.params.name));
+}));
+
+router.get('/:id/views/:schema/:name/ddl', wrap(async (req, res) => {
+  res.json({ ddl: await oracle.getViewDDL(req.params.id, req.params.schema, req.params.name) });
+}));
+
+router.get('/:id/source/:schema/:type/:name', wrap(async (req, res) => {
+  res.json({ source: await oracle.getSource(req.params.id, req.params.schema, req.params.type, req.params.name) });
+}));
+
+router.get('/:id/source/:schema/:type/:name/properties', wrap(async (req, res) => {
+  res.json(await oracle.getObjectProperties(req.params.id, req.params.schema, req.params.type, req.params.name));
+}));
+
+router.get('/:id/sequences/:schema/:name', wrap(async (req, res) => {
+  res.json(await oracle.getSequenceInfo(req.params.id, req.params.schema, req.params.name));
+}));
+
+router.post('/:id/query', wrap(async (req, res) => {
+  const { sql, schema } = req.body;
+  if (!sql) return res.status(400).json({ error: 'sql is required' });
+  res.json(await oracle.executeSQL(req.params.id, sql, schema));
+}));
+
+export default router;
