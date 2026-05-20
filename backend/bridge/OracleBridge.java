@@ -108,6 +108,12 @@ public class OracleBridge {
         if (o instanceof Number) return o.toString();
         if (o instanceof Boolean) return o.toString();
         if (o instanceof byte[]) return jsonStr(new String((byte[]) o));
+        if (o instanceof java.sql.Clob) {
+            try {
+                java.sql.Clob clob = (java.sql.Clob) o;
+                return jsonStr(clob.getSubString(1, (int) clob.length()));
+            } catch (Exception e) { return "null"; }
+        }
         return jsonStr(o.toString());
     }
 }
