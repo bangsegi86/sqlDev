@@ -1,8 +1,9 @@
 import { spawn, execFile } from 'child_process';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import https from 'https';
+import http from 'http';
 import { createWriteStream, unlink } from 'fs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -15,50 +16,68 @@ const CP_SEP = process.platform === 'win32' ? ';' : ':';
 const IS_WIN = process.platform === 'win32';
 const JAVA_BIN = IS_WIN ? 'java.exe' : 'java';
 
-const processes = new Map(); // id -> { proc, buffer, pending: {resolve,reject} | null }
+// 프로젝트 내장 JRE 경로 (backend/runtime/jre/)
+const RUNTIME_DIR = join(__dir, '../../runtime');
+export const JRE_DIR = join(RUNTIME_DIR, 'jre');
+const JRE_JAVA = join(JRE_DIR, 'bin', JAVA_BIN);
 
-// Auto-detect java executable from common locations (DBeaver, JDK, JRE installs)
+// Adoptium OpenJDK 21 JRE 다운로드 URL
+function getJreUrl() {
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x64';
+  const os = IS_WIN ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
+  const ext = IS_WIN ? 'zip' : 'tar.gz';
+  return {
+    url: `https://api.adoptium.net/v3/binary/latest/21/ga/${os}/${arch}/jre/hotspot/normal/eclipse`,
+    ext,
+  };
+}
+
+const processes = new Map();
+
+// 프로젝트 내장 JRE 우선 → JAVA_HOME → PATH
 function findJava() {
-  // 1. JAVA_HOME env var
+  if (existsSync(JRE_JAVA)) return JRE_JAVA;
   if (process.env.JAVA_HOME) {
     const p = join(process.env.JAVA_HOME, 'bin', JAVA_BIN);
     if (existsSync(p)) return p;
   }
-
-  const candidates = IS_WIN ? [
-    // DBeaver bundled JVM
-    'C:\\Program Files\\DBeaver\\jre\\bin\\java.exe',
-    'C:\\Program Files\\DBeaverCommunity\\jre\\bin\\java.exe',
-    join(process.env.LOCALAPPDATA || 'C:\\Users\\Public', 'DBeaver', 'jre', 'bin', 'java.exe'),
-    // Oracle JDK/JRE
-    ...['21', '17', '11', '8'].flatMap(v => [
-      `C:\\Program Files\\Java\\jre${v}\\bin\\java.exe`,
-      `C:\\Program Files\\Java\\jdk-${v}\\bin\\java.exe`,
-      `C:\\Program Files\\Java\\jdk${v}\\bin\\java.exe`,
-    ]),
-    // Eclipse Adoptium / Temurin
-    ...['21', '17', '11'].map(v => `C:\\Program Files\\Eclipse Adoptium\\jre-${v}\\bin\\java.exe`),
-    // Microsoft JDK
-    ...['21', '17', '11'].map(v => `C:\\Program Files\\Microsoft\\jdk-${v}\\bin\\java.exe`),
-  ] : [
-    // DBeaver bundled JVM (Linux/Mac)
-    '/usr/share/dbeaver/jre/bin/java',
-    '/opt/dbeaver/jre/bin/java',
-    '/Applications/DBeaverCommunity.app/Contents/Eclipse/jre/Contents/Home/bin/java',
-    '/usr/bin/java',
-    '/usr/local/bin/java',
-  ];
-
-  for (const c of candidates) if (existsSync(c)) return c;
-  return 'java'; // fallback: rely on PATH
+  return 'java'; // 마지막 수단: PATH
 }
 
 export function getJdbcStatus() {
   return {
     driverDownloaded: existsSync(OJDBC_PATH),
     bridgeCompiled: existsSync(BRIDGE_CLASS_FILE),
-    available: existsSync(OJDBC_PATH) && existsSync(BRIDGE_CLASS_FILE),
+    jreReady: existsSync(JRE_JAVA),
+    available: existsSync(OJDBC_PATH) && existsSync(BRIDGE_CLASS_FILE) && existsSync(JRE_JAVA),
   };
+}
+
+async function downloadJre() {
+  if (existsSync(JRE_JAVA)) return; // 이미 있으면 스킵
+  const { url, ext } = getJreUrl();
+  const archivePath = join(RUNTIME_DIR, `jre.${ext}`);
+  const tmpDir = join(RUNTIME_DIR, 'jre_tmp');
+
+  console.log(`[JRE] 다운로드 중: ${url}`);
+  await downloadFile(url, archivePath);
+
+  console.log('[JRE] 압축 해제 중...');
+  mkdirSync(tmpDir, { recursive: true });
+  await new Promise((resolve, reject) => {
+    execFile('tar', ['-xf', archivePath, '-C', tmpDir],
+      (err, _o, stderr) => err ? reject(new Error(stderr || err.message)) : resolve());
+  });
+
+  // 압축 해제된 폴더(jdk-21.x.x-jre 형태)를 runtime/jre 로 이동
+  const entries = readdirSync(tmpDir);
+  if (entries.length === 0) throw new Error('JRE 압축 해제 실패: 빈 폴더');
+  renameSync(join(tmpDir, entries[0]), JRE_DIR);
+
+  // 임시 파일 정리
+  try { rmSync(archivePath); } catch {}
+  try { rmSync(tmpDir, { recursive: true }); } catch {}
+  console.log(`[JRE] 완료: ${JRE_JAVA}`);
 }
 
 function downloadFile(url, dest) {
@@ -99,15 +118,16 @@ function compile() {
 }
 
 export async function downloadAndCompile() {
+  // ojdbc11.jar 다운로드
   if (!existsSync(OJDBC_PATH)) await downloadFile(OJDBC_URL, OJDBC_PATH);
-  // OracleBridge.class is bundled in the repo — compile only if somehow missing
+  // OracleBridge.class는 저장소에 포함되어 있음
   if (!existsSync(BRIDGE_CLASS_FILE)) {
-    try {
-      await compile();
-    } catch (e) {
-      throw new Error(`OracleBridge.class가 없고 javac로 컴파일도 실패했습니다: ${e.message}\n저장소를 다시 clone 해주세요.`);
+    try { await compile(); } catch (e) {
+      throw new Error(`OracleBridge.class 컴파일 실패: ${e.message}`);
     }
   }
+  // 프로젝트 내장 JRE 다운로드 (없을 경우)
+  if (!existsSync(JRE_JAVA)) await downloadJre();
 }
 
 function spawnBridge() {
