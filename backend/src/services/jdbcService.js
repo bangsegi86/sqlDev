@@ -134,10 +134,11 @@ function spawnBridge() {
   const cp = `${BRIDGE_DIR}${CP_SEP}${OJDBC_PATH}`;
   const javaExe = findJava();
   console.log(`[JDBC] java: ${javaExe}`);
+  console.log(`[JDBC] classpath: ${cp}`);
   const proc = spawn(javaExe, ['-cp', cp, 'OracleBridge'], {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const state = { proc, buffer: '', pending: null };
+  const state = { proc, buffer: '', stderrBuf: '', pending: null };
 
   const fail = (err) => {
     if (state.pending) { state.pending.reject(err); state.pending = null; }
@@ -155,16 +156,23 @@ function spawnBridge() {
       else resolve(line);
     }
   });
-  proc.stderr.on('data', (d) => console.error('[JDBC]', d.toString()));
+  proc.stderr.on('data', (d) => {
+    state.stderrBuf += d.toString();
+    console.error('[JDBC stderr]', d.toString());
+  });
   proc.on('error', (e) => {
     const msg = e.code === 'ENOENT'
-      ? 'java 명령어를 찾을 수 없습니다. Java(JRE)가 설치되어 있고 PATH에 등록되어 있는지 확인하세요.'
+      ? `java 실행파일을 찾을 수 없습니다: ${javaExe}`
       : e.message;
     fail(new Error(msg));
   });
   proc.on('exit', (code) => {
-    if (code !== 0) fail(new Error(`JDBC bridge 프로세스가 종료되었습니다 (code ${code})`));
-    else fail(new Error('JDBC bridge 연결 종료'));
+    if (code !== 0) {
+      const detail = state.stderrBuf.trim().split('\n')[0] || '';
+      fail(new Error(`JDBC 브리지 시작 실패 (code ${code})${detail ? ': ' + detail : ''}`));
+    } else {
+      fail(new Error('JDBC bridge 연결 종료'));
+    }
   });
   return state;
 }
