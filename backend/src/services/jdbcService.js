@@ -78,6 +78,11 @@ function spawnBridge() {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const state = { proc, buffer: '', pending: null };
+
+  const fail = (err) => {
+    if (state.pending) { state.pending.reject(err); state.pending = null; }
+  };
+
   proc.stdout.on('data', (chunk) => {
     state.buffer += chunk.toString('utf8');
     const nl = state.buffer.indexOf('\n');
@@ -91,8 +96,15 @@ function spawnBridge() {
     }
   });
   proc.stderr.on('data', (d) => console.error('[JDBC]', d.toString()));
-  proc.on('exit', () => {
-    if (state.pending) { state.pending.reject(new Error('JDBC bridge exited')); state.pending = null; }
+  proc.on('error', (e) => {
+    const msg = e.code === 'ENOENT'
+      ? 'java 명령어를 찾을 수 없습니다. Java(JRE)가 설치되어 있고 PATH에 등록되어 있는지 확인하세요.'
+      : e.message;
+    fail(new Error(msg));
+  });
+  proc.on('exit', (code) => {
+    if (code !== 0) fail(new Error(`JDBC bridge 프로세스가 종료되었습니다 (code ${code})`));
+    else fail(new Error('JDBC bridge 연결 종료'));
   });
   return state;
 }
@@ -120,8 +132,8 @@ export async function jdbcTestConnection({ host, port, serviceName, username, pa
     const version = JSON.parse(resp.slice(3));
     return { success: true, latencyMs: Date.now() - start, serverVersion: version };
   } finally {
-    state.proc.stdin.write('CLOSE\n');
-    setTimeout(() => state.proc.kill(), 2000);
+    try { state.proc.stdin.write('CLOSE\n'); } catch {}
+    setTimeout(() => { try { state.proc.kill(); } catch {} }, 2000);
   }
 }
 

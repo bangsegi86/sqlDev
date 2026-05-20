@@ -42,9 +42,17 @@ export async function testConnection(params) {
     const banner = result.rows?.[0]?.BANNER || 'Oracle Database';
     return { success: true, latencyMs: Date.now() - start, serverVersion: banner, mode: 'thin' };
   } catch (e) {
-    if ((e.message.includes('NJS-116') || e.message.includes('password verifier')) && getJdbcStatus().available) {
-      const result = await jdbcTestConnection(params);
-      return { ...result, mode: 'jdbc' };
+    const isVerifierError = e.message.includes('NJS-116') || e.message.includes('password verifier');
+    if (isVerifierError && getJdbcStatus().available) {
+      try {
+        const result = await jdbcTestConnection(params);
+        return { ...result, mode: 'jdbc' };
+      } catch (jdbcErr) {
+        throw new Error(`JDBC 연결 실패: ${jdbcErr.message}`);
+      }
+    }
+    if (isVerifierError && !getJdbcStatus().available) {
+      throw new Error('NJS-116: 구형 Oracle 10g 인증 방식입니다. ⚙ 설정에서 JDBC 드라이버를 다운로드하면 자동으로 해결됩니다.');
     }
     throw e;
   } finally {
