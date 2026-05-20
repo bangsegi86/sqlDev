@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
+import { renderHighlighted } from '../../utils/sqlHighlight.js';
 
 export default function SqlEditor({ tab }) {
   const { state, dispatch } = useApp();
@@ -13,6 +14,8 @@ export default function SqlEditor({ tab }) {
   const [splitPos, setSplitPos] = useState(50);
   const isDragging = useRef(false);
   const containerRef = useRef(null);
+  const textareaRef = useRef(null);
+  const preRef = useRef(null);
 
   const connId = tab.connectionId || state.activeConnectionId;
   const schema = state.selectedSchema?.schemaName;
@@ -28,6 +31,30 @@ export default function SqlEditor({ tab }) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sql, connId, schema]);
+
+  const highlightedSql = useMemo(() => renderHighlighted(sql), [sql]);
+
+  function syncScroll() {
+    if (preRef.current && textareaRef.current) {
+      preRef.current.scrollTop = textareaRef.current.scrollTop;
+      preRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  }
+
+  function handleTabKey(e) {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = e.target.selectionStart;
+      const end = e.target.selectionEnd;
+      const next = sql.slice(0, start) + '  ' + sql.slice(end);
+      setSql(next);
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
+        }
+      });
+    }
+  }
 
   async function execute() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
@@ -80,18 +107,57 @@ export default function SqlEditor({ tab }) {
         )}
       </div>
 
-      <textarea
-        value={sql}
-        onChange={e => setSql(e.target.value)}
-        placeholder="SELECT * FROM TABLE_NAME;"
-        style={{
-          height: `${splitPos}%`, resize: 'none', border: 'none', borderRadius: 0,
-          fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
-          background: 'var(--bg-primary)', color: 'var(--text-primary)',
-          padding: '10px 12px',
-        }}
-        spellCheck={false}
-      />
+      {/* ── Editor: highlighted pre + transparent textarea overlay ── */}
+      <div style={{ position: 'relative', height: `${splitPos}%`, overflow: 'hidden', background: 'var(--bg-primary)' }}>
+        {/* Highlighted display layer (behind textarea) */}
+        <pre
+          ref={preRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute', inset: 0, overflow: 'hidden',
+            margin: 0, padding: '10px 12px',
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            whiteSpace: 'pre', color: 'var(--text-primary)',
+            background: 'var(--bg-primary)', pointerEvents: 'none',
+          }}
+        >
+          {highlightedSql}
+          {'\n'}
+        </pre>
+        {/* Placeholder shown only when editor is empty */}
+        {!sql && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, padding: '10px 12px',
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            color: 'var(--text-dim)', pointerEvents: 'none', userSelect: 'none',
+          }}>
+            SELECT * FROM TABLE_NAME;
+          </div>
+        )}
+        {/* Input capture layer (text invisible, caret visible) */}
+        <textarea
+          ref={textareaRef}
+          value={sql}
+          onChange={e => setSql(e.target.value)}
+          onScroll={syncScroll}
+          onKeyDown={e => { handleTabKey(e); syncScroll(); }}
+          onKeyUp={syncScroll}
+          onClick={syncScroll}
+          style={{
+            position: 'absolute', inset: 0,
+            resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            background: 'transparent',
+            color: 'transparent',
+            caretColor: 'var(--text-primary)',
+            padding: '10px 12px',
+            whiteSpace: 'pre',
+            overflow: 'auto',
+          }}
+          spellCheck={false}
+          wrap="off"
+        />
+      </div>
 
       <div
         style={{ height: 5, background: 'var(--border)', cursor: 'row-resize', flexShrink: 0 }}

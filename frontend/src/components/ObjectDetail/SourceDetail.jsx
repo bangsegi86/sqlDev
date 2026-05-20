@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
+import { highlightTokens, splitHighlightedLines } from '../../utils/sqlHighlight.js';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 
@@ -18,6 +19,12 @@ export default function SourceDetail({ tab }) {
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const highlightedLines = useMemo(() => {
+    const code = isFormatted ? formattedSource : source;
+    if (!code) return null;
+    return splitHighlightedLines(highlightTokens(code));
+  }, [source, formattedSource, isFormatted]);
 
   useEffect(() => {
     if (activeTab === 'source' && !source) {
@@ -116,10 +123,16 @@ export default function SourceDetail({ tab }) {
             {!loading && !error && (
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 <pre style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}>
-                  {(isFormatted ? formattedSource : source).split('\n').map((line, i) => (
+                  {(highlightedLines || []).map((lineToks, i) => (
                     <div key={i} style={{ display: 'flex' }}>
                       <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
-                      <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>{line}</span>
+                      <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
+                        {lineToks.map((tok, j) =>
+                          tok.color
+                            ? <span key={j} style={{ color: tok.color }}>{tok.value}</span>
+                            : tok.value
+                        )}
+                      </span>
                     </div>
                   ))}
                 </pre>

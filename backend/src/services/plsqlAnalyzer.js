@@ -1,61 +1,44 @@
-// PL/SQL 소스 분석기 - 데이터 흐름 정보 추출
+// PL/SQL 순차 실행 흐름 분석기
 
 const SYSTEM_OBJECTS = new Set([
-  'DUAL', 'ROWNUM', 'ROWID', 'LEVEL', 'SYSDATE', 'SYSTIMESTAMP',
-  'USER', 'UID', 'SESSIONID', 'INSTANCE',
+  'DUAL','ROWNUM','ROWID','LEVEL','SYSDATE','SYSTIMESTAMP','USER','UID','SESSIONID','INSTANCE',
 ]);
-
-const ORACLE_SYSTEM_PREFIXES = ['V$', 'GV$', 'DBA_', 'ALL_', 'USER_', 'V_$', 'NLS_'];
-
+const ORACLE_SYSTEM_PREFIXES = ['V$','GV$','DBA_','ALL_','USER_','V_$','NLS_'];
 const SQL_KEYWORDS = new Set([
-  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN',
-  'LIKE', 'IS', 'NULL', 'TRUE', 'FALSE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-  'IF', 'ELSIF', 'LOOP', 'FOR', 'WHILE', 'BEGIN', 'EXCEPTION', 'RAISE',
-  'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'INTO', 'VALUES', 'SET',
-  'COMMIT', 'ROLLBACK', 'SAVEPOINT', 'CURSOR', 'OPEN', 'FETCH', 'CLOSE',
-  'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'TYPE', 'BODY',
-  'RETURN', 'RETURNS', 'DECLARE', 'AS', 'IS', 'BY', 'ON', 'ORDER', 'GROUP',
-  'HAVING', 'UNION', 'INTERSECT', 'MINUS', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
-  'FULL', 'OUTER', 'CROSS', 'NATURAL', 'USING', 'WITH', 'CONNECT', 'START',
-  'PRIOR', 'NOCYCLE', 'SIBLINGS', 'OVER', 'PARTITION', 'ROWS', 'RANGE',
-  'BETWEEN', 'UNBOUNDED', 'PRECEDING', 'FOLLOWING', 'CURRENT', 'ROW',
-  'EXECUTE', 'IMMEDIATE', 'BULK', 'COLLECT', 'FORALL', 'INDICES', 'OF', 'BETWEEN',
-  'DEFAULT', 'CONSTANT', 'EXCEPTION', 'OTHERS', 'GOTO', 'EXIT', 'CONTINUE',
-  'PRAGMA', 'AUTONOMOUS_TRANSACTION', 'EXCEPTION_INIT', 'RESTRICT_REFERENCES',
-  'TABLE', 'INDEX', 'SEQUENCE', 'VIEW', 'SYNONYM', 'GRANT', 'REVOKE',
-  'ALTER', 'CREATE', 'DROP', 'TRUNCATE', 'COMMENT', 'COLUMN',
-  'NUMBER', 'VARCHAR2', 'VARCHAR', 'CHAR', 'DATE', 'TIMESTAMP', 'BOOLEAN',
-  'INTEGER', 'PLS_INTEGER', 'BINARY_INTEGER', 'BINARY_DOUBLE', 'BINARY_FLOAT',
-  'CLOB', 'BLOB', 'NCLOB', 'RAW', 'LONG', 'XMLTYPE', 'ROWTYPE', 'TYPE',
-  'SYS', 'SYSTEM', 'PUBLIC',
+  'SELECT','FROM','WHERE','AND','OR','NOT','IN','EXISTS','BETWEEN','LIKE','IS','NULL',
+  'CASE','WHEN','THEN','ELSE','END','IF','ELSIF','LOOP','FOR','WHILE','BEGIN','EXCEPTION',
+  'RAISE','INSERT','UPDATE','DELETE','MERGE','INTO','VALUES','SET','COMMIT','ROLLBACK',
+  'SAVEPOINT','CURSOR','OPEN','FETCH','CLOSE','PROCEDURE','FUNCTION','PACKAGE','TRIGGER',
+  'TYPE','BODY','RETURN','DECLARE','AS','IS','BY','ON','ORDER','GROUP','HAVING','UNION',
+  'INTERSECT','MINUS','JOIN','INNER','LEFT','RIGHT','FULL','OUTER','CROSS','NATURAL',
+  'USING','WITH','EXECUTE','IMMEDIATE','BULK','COLLECT','FORALL','DEFAULT','CONSTANT',
+  'OTHERS','GOTO','EXIT','CONTINUE','PRAGMA','TABLE','INDEX','SEQUENCE','VIEW','TRUE','FALSE',
+  'NUMBER','VARCHAR2','VARCHAR','CHAR','DATE','TIMESTAMP','BOOLEAN','INTEGER','CLOB','BLOB',
+  'SYS','SYSTEM','PUBLIC','ALL','OF','OVER','PARTITION','ROW','ROWS','RANGE','CONNECT','START',
+]);
+const BUILTIN_FUNCTIONS = new Set([
+  'TO_CHAR','TO_DATE','TO_NUMBER','TO_TIMESTAMP','NVL','NVL2','DECODE','COALESCE','NULLIF',
+  'COUNT','SUM','AVG','MAX','MIN','UPPER','LOWER','TRIM','LTRIM','RTRIM','SUBSTR','INSTR',
+  'LENGTH','REPLACE','LPAD','RPAD','CHR','ASCII','CONCAT','SYSDATE','SYSTIMESTAMP',
+  'ADD_MONTHS','MONTHS_BETWEEN','TRUNC','ROUND','CEIL','FLOOR','MOD','ABS','SIGN',
+  'GREATEST','LEAST','REGEXP_LIKE','REGEXP_SUBSTR','REGEXP_REPLACE','ROW_NUMBER','RANK',
+  'DENSE_RANK','FIRST_VALUE','LAST_VALUE','LAG','LEAD','SYS_GUID','RAWTOHEX',
+  'RAISE_APPLICATION_ERROR','SQLCODE','SQLERRM','PUT_LINE','LISTAGG','SYS_CONTEXT',
 ]);
 
-const BUILTIN_FUNCTIONS = new Set([
-  'TO_CHAR', 'TO_DATE', 'TO_NUMBER', 'TO_TIMESTAMP', 'TO_TIMESTAMP_TZ', 'TO_CLOB',
-  'NVL', 'NVL2', 'DECODE', 'COALESCE', 'NULLIF', 'LNNVL',
-  'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'STDDEV', 'VARIANCE',
-  'UPPER', 'LOWER', 'INITCAP', 'TRIM', 'LTRIM', 'RTRIM',
-  'SUBSTR', 'SUBSTRB', 'INSTR', 'INSTRB', 'LENGTH', 'LENGTHB',
-  'REPLACE', 'TRANSLATE', 'LPAD', 'RPAD', 'CHR', 'ASCII', 'CONCAT',
-  'SYSDATE', 'SYSTIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIMESTAMP', 'LOCALTIMESTAMP',
-  'ADD_MONTHS', 'MONTHS_BETWEEN', 'NEXT_DAY', 'LAST_DAY', 'EXTRACT',
-  'TRUNC', 'ROUND', 'CEIL', 'FLOOR', 'MOD', 'POWER', 'SQRT', 'ABS', 'SIGN',
-  'GREATEST', 'LEAST', 'WIDTH_BUCKET',
-  'REGEXP_LIKE', 'REGEXP_SUBSTR', 'REGEXP_REPLACE', 'REGEXP_COUNT', 'REGEXP_INSTR',
-  'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'PERCENT_RANK', 'CUME_DIST',
-  'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE', 'LAG', 'LEAD',
-  'SYS_GUID', 'RAWTOHEX', 'HEXTORAW', 'ROWIDTOCHAR', 'CHARTOROWID',
-  'RAISE_APPLICATION_ERROR', 'SQLCODE', 'SQLERRM',
-  'PUT_LINE', 'PUT', 'GET_LINE', 'NEW_LINE', 'FOPEN', 'FCLOSE',
-  'ISNUMERIC', 'ISDATE', 'ISNULL',
-  'LISTAGG', 'WM_CONCAT', 'XMLAGG', 'XMLELEMENT', 'XMLFOREST',
-  'SYS_CONTEXT', 'SYS_EXTRACT_UTC', 'DBTIMEZONE', 'SESSIONTIMEZONE',
-]);
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
 function removeComments(src) {
-  let result = src.replace(/--[^\n]*/g, '');
-  result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-  return result;
+  return src.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
+function sanitizeId(name) {
+  return (name.replace(/[^A-Z0-9_]/gi, '_').toUpperCase().replace(/^_+|_+$/g, '') || 'X');
+}
+
+function esc(s) {
+  // Escape text for Mermaid node labels
+  return String(s || '').replace(/"/g, "'").replace(/[<>{}[\]]/g, ' ').replace(/\n/g, '\\n').trim().slice(0, 55);
 }
 
 function isSystemTable(name) {
@@ -63,71 +46,576 @@ function isSystemTable(name) {
   return ORACLE_SYSTEM_PREFIXES.some(p => name.startsWith(p));
 }
 
-function sanitizeId(name) {
-  return name.replace(/[^A-Z0-9_]/gi, '_').toUpperCase();
+// ── Tokenizer ─────────────────────────────────────────────────────────────────
+
+function tokenize(src) {
+  const toks = [];
+  let i = 0;
+  while (i < src.length) {
+    if (/\s/.test(src[i])) { i++; continue; }
+    if (src[i] === "'") {
+      let j = i + 1;
+      while (j < src.length) {
+        if (src[j] === "'" && src[j+1] === "'") { j += 2; }
+        else if (src[j] === "'") { j++; break; }
+        else j++;
+      }
+      toks.push({ t: 'STR', v: "'...'", pos: i }); i = j; continue;
+    }
+    if (/[A-Za-z_$#]/.test(src[i])) {
+      let j = i;
+      while (j < src.length && /[A-Za-z0-9_$#]/.test(src[j])) j++;
+      const v = src.slice(i, j);
+      toks.push({ t: 'W', v, u: v.toUpperCase(), pos: i }); i = j; continue;
+    }
+    if (/\d/.test(src[i])) {
+      let j = i;
+      while (j < src.length && /[\d.eE]/.test(src[j])) j++;
+      toks.push({ t: 'NUM', v: src.slice(i, j), pos: i }); i = j; continue;
+    }
+    const two = src.slice(i, i+2);
+    if ([':=','<>','<=','>=','!=','||','..'].includes(two)) {
+      toks.push({ t: 'OP', v: two, pos: i }); i += 2; continue;
+    }
+    const ch = src[i];
+    toks.push({ t: ch===';'?'SEMI':ch==='('?'LP':ch===')'?'RP':ch==='.'?'DOT':'P', v: ch, pos: i });
+    i++;
+  }
+  return toks;
 }
 
-function splitByComma(str) {
-  const result = [];
-  let depth = 0;
-  let cur = '';
-  for (const ch of str) {
-    if (ch === '(') { depth++; cur += ch; }
-    else if (ch === ')') { depth--; cur += ch; }
-    else if (ch === ',' && depth === 0) { result.push(cur.trim()); cur = ''; }
-    else cur += ch;
+// ── Parser Helpers ────────────────────────────────────────────────────────────
+
+function skipParens(toks, i) {
+  let d = 1; i++;
+  while (i < toks.length && d > 0) {
+    if (toks[i].t === 'LP') d++;
+    else if (toks[i].t === 'RP') d--;
+    i++;
   }
-  if (cur.trim()) result.push(cur.trim());
-  return result;
+  return i;
 }
+
+function collectUntilSemi(toks, i) {
+  const parts = [];
+  while (i < toks.length && toks[i].t !== 'SEMI') {
+    if (toks[i].t === 'LP') { parts.push('(...)'); i = skipParens(toks, i); }
+    else { parts.push(toks[i].v); i++; }
+  }
+  return { text: parts.join(' ').replace(/\s+/g,' ').trim(), endIdx: i };
+}
+
+function collectUntil(toks, i, ...stopWords) {
+  const parts = [];
+  while (i < toks.length) {
+    if (toks[i].t === 'W' && stopWords.includes(toks[i].u)) break;
+    if (toks[i].t === 'LP') { parts.push('(...)'); i = skipParens(toks, i); }
+    else { parts.push(toks[i].v); i++; }
+  }
+  return { text: parts.join(' ').replace(/\s+/g,' ').trim().slice(0,70), endIdx: i };
+}
+
+// ── Block Parser ──────────────────────────────────────────────────────────────
+// Returns { steps[], endIdx } where endIdx points AT the stop word
+
+function parseBlock(toks, i, stopWords) {
+  const steps = [];
+  while (i < toks.length) {
+    if (toks[i].t === 'W' && stopWords.includes(toks[i].u)) return { steps, endIdx: i };
+    if (toks[i].t !== 'W') { i++; continue; }
+    const u = toks[i].u;
+
+    if (u === 'IF') {
+      i++;
+      const { text: cond, endIdx: ci } = collectUntil(toks, i, 'THEN');
+      i = toks[ci]?.u === 'THEN' ? ci + 1 : ci;
+      const branches = [];
+      const { steps: s0, endIdx: e0 } = parseBlock(toks, i, ['ELSIF','ELSE','END']);
+      branches.push({ label: '예 (TRUE)', condition: cond, steps: s0 }); i = e0;
+      while (toks[i]?.u === 'ELSIF') {
+        i++;
+        const { text: ec, endIdx: ei } = collectUntil(toks, i, 'THEN');
+        i = toks[ei]?.u === 'THEN' ? ei + 1 : ei;
+        const { steps: es, endIdx: ee } = parseBlock(toks, i, ['ELSIF','ELSE','END']);
+        branches.push({ label: `ELSIF ${ec.slice(0,25)}`, condition: ec, steps: es }); i = ee;
+      }
+      if (toks[i]?.u === 'ELSE') {
+        i++;
+        const { steps: es, endIdx: ee } = parseBlock(toks, i, ['END']);
+        branches.push({ label: '아니오 (FALSE)', condition: null, steps: es }); i = ee;
+      } else {
+        branches.push({ label: '아니오 (FALSE)', condition: null, steps: [] });
+      }
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'IF') i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push({ type: 'if', condition: cond, branches }); continue;
+    }
+
+    if (u === 'FOR') {
+      i++;
+      const { text: hdr, endIdx: hi } = collectUntil(toks, i, 'LOOP');
+      i = toks[hi]?.u === 'LOOP' ? hi + 1 : hi;
+      const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push({ type: 'for_loop', header: hdr, steps: ls }); continue;
+    }
+
+    if (u === 'WHILE') {
+      i++;
+      const { text: wc, endIdx: wi } = collectUntil(toks, i, 'LOOP');
+      i = toks[wi]?.u === 'LOOP' ? wi + 1 : wi;
+      const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push({ type: 'while_loop', condition: wc, steps: ls }); continue;
+    }
+
+    if (u === 'LOOP') {
+      i++;
+      const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push({ type: 'loop', steps: ls }); continue;
+    }
+
+    if (u === 'CASE') {
+      i++;
+      let caseExpr = '';
+      if (toks[i]?.u !== 'WHEN') { const r = collectUntil(toks, i, 'WHEN'); caseExpr = r.text; i = r.endIdx; }
+      const branches = [];
+      while (toks[i]?.u === 'WHEN') {
+        i++;
+        const { text: wc, endIdx: wi } = collectUntil(toks, i, 'THEN');
+        i = toks[wi]?.u === 'THEN' ? wi + 1 : wi;
+        const { steps: ws, endIdx: we } = parseBlock(toks, i, ['WHEN','ELSE','END']);
+        branches.push({ label: `WHEN ${wc.slice(0,20)}`, condition: (caseExpr?caseExpr+'=':'')+wc, steps: ws }); i = we;
+      }
+      if (toks[i]?.u === 'ELSE') {
+        i++;
+        const { steps: es, endIdx: ee } = parseBlock(toks, i, ['END']);
+        branches.push({ label: 'ELSE', condition: null, steps: es }); i = ee;
+      }
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'CASE') i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push({ type: 'if', condition: caseExpr || 'CASE', branches }); continue;
+    }
+
+    if (u === 'BEGIN') {
+      i++;
+      const { steps: bs, endIdx: be } = parseBlock(toks, i, ['END','EXCEPTION']); i = be;
+      if (toks[i]?.u === 'EXCEPTION') {
+        i++;
+        const { endIdx: ee } = parseBlock(toks, i, ['END']); i = ee;
+      }
+      if (toks[i]?.u === 'END') { i++; if (toks[i]?.t === 'SEMI') i++; }
+      steps.push(...bs); continue;
+    }
+
+    if (u === 'DECLARE') {
+      const { endIdx: bi } = collectUntil(toks, i+1, 'BEGIN'); i = bi; continue;
+    }
+
+    if (u === 'NULL' || u === 'EXIT' || u === 'CONTINUE') {
+      while (i < toks.length && toks[i].t !== 'SEMI') i++;
+      if (toks[i]?.t === 'SEMI') i++;
+      continue;
+    }
+
+    // Simple statement
+    const { text, endIdx: si } = collectUntilSemi(toks, i);
+    i = si + 1;
+    const step = classifyStatement(u, text);
+    if (step) steps.push(step);
+  }
+  return { steps, endIdx: i };
+}
+
+function classifyStatement(firstWord, text) {
+  switch (firstWord) {
+    case 'SELECT': {
+      const tables = [];
+      const re = /(?:FROM|JOIN)\s+([A-Z_][A-Z0-9_$#]*)/gi;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const t = m[1].toUpperCase();
+        if (!SQL_KEYWORDS.has(t) && !SYSTEM_OBJECTS.has(t) && !tables.includes(t)) tables.push(t);
+      }
+      return { type: 'select', tables, label: 'SELECT' + (tables.length ? ' FROM\\n' + tables.slice(0,2).join(', ') : '') };
+    }
+    case 'INSERT': {
+      const t = /INTO\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
+      return { type: 'insert', table: t, label: `INSERT INTO\\n${t}` };
+    }
+    case 'UPDATE': {
+      const t = /UPDATE\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
+      return { type: 'update', table: t, label: `UPDATE\\n${t}` };
+    }
+    case 'DELETE': {
+      const t = /(?:DELETE\s+FROM|DELETE)\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
+      return { type: 'delete', table: t, label: `DELETE FROM\\n${t}` };
+    }
+    case 'MERGE': {
+      const t = /MERGE\s+INTO\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
+      return { type: 'merge', table: t, label: `MERGE INTO\\n${t}` };
+    }
+    case 'COMMIT':   return { type: 'commit',   label: 'COMMIT' };
+    case 'ROLLBACK': return { type: 'rollback', label: 'ROLLBACK' };
+    case 'SAVEPOINT': return { type: 'commit',  label: `SAVEPOINT ${text.replace(/^SAVEPOINT\s*/i,'').slice(0,20)}` };
+    case 'RETURN': {
+      const v = text.replace(/^RETURN\s*/i,'').replace(/\s+/g,' ').slice(0,35);
+      return { type: 'return', label: `RETURN${v ? ' ' + v : ''}` };
+    }
+    case 'RAISE': {
+      const v = text.replace(/^RAISE\s*/i,'').slice(0,35) || 'EXCEPTION';
+      return { type: 'raise', label: `RAISE ${v}` };
+    }
+    case 'EXECUTE': return { type: 'dynamic', label: 'EXECUTE IMMEDIATE\\n동적 SQL' };
+    case 'OPEN':  return { type: 'cursor', op: 'OPEN',  label: text.replace(/\s+/g,' ').slice(0,50) };
+    case 'FETCH': return { type: 'cursor', op: 'FETCH', label: text.replace(/\s+/g,' ').slice(0,50) };
+    case 'CLOSE': return { type: 'cursor', op: 'CLOSE', label: text.replace(/\s+/g,' ').slice(0,50) };
+    default: {
+      if (text.includes(':=')) return null; // variable assignment — skip
+      const callM = /^([A-Za-z_][A-Za-z0-9_$#]*(?:\.[A-Za-z_][A-Za-z0-9_$#]*)*)\s*\(/.exec(text);
+      if (!callM) return null;
+      const fn = callM[1];
+      const fnUp = fn.toUpperCase();
+      if (SQL_KEYWORDS.has(fnUp.split('.')[0])) return null;
+      if (BUILTIN_FUNCTIONS.has(fnUp.split('.').pop())) return null;
+      const isSys = /^(DBMS_|UTL_|HTP\b|HTF\b|APEX_|FND_)/i.test(fn);
+      return { type: isSys ? 'call_system' : 'call_user', label: fn.slice(0,50) };
+    }
+  }
+}
+
+// ── Flow AST Builder ──────────────────────────────────────────────────────────
+
+function buildFlowAST(src) {
+  const cleaned = removeComments(src);
+  const toks = tokenize(cleaned);
+
+  // Find the main BEGIN (skip procedure header parens)
+  let i = 0, depth = 0;
+  while (i < toks.length) {
+    if (toks[i].t === 'LP') { depth++; i++; continue; }
+    if (toks[i].t === 'RP') { depth--; i++; continue; }
+    if (depth === 0 && toks[i].t === 'W' && toks[i].u === 'BEGIN') { i++; break; }
+    i++;
+  }
+
+  const { steps: mainSteps, endIdx } = parseBlock(toks, i, ['END','EXCEPTION']);
+  i = endIdx;
+
+  const exceptionHandlers = [];
+  if (toks[i]?.u === 'EXCEPTION') {
+    i++;
+    while (i < toks.length && toks[i]?.u !== 'END') {
+      if (toks[i]?.u !== 'WHEN') { i++; continue; }
+      i++;
+      const { text: cond, endIdx: ci } = collectUntil(toks, i, 'THEN');
+      i = toks[ci]?.u === 'THEN' ? ci + 1 : ci;
+      const { steps: hs, endIdx: he } = parseBlock(toks, i, ['WHEN','END']);
+      exceptionHandlers.push({ condition: cond, steps: hs }); i = he;
+    }
+  }
+
+  return { mainSteps, exceptionHandlers };
+}
+
+// ── Mermaid Sequential Flowchart Generator ────────────────────────────────────
+
+let _n = 0;
+const nid = prefix => `${prefix}${++_n}`;
+
+function arrowTo(label) {
+  return label ? `-->|"${esc(label)}"|` : '-->';
+}
+
+function summarizeSteps(steps) {
+  const out = [];
+  for (const s of steps || []) {
+    if (!s) continue;
+    if (s.type === 'select')   out.push(`📖 SELECT FROM ${(s.tables||[]).slice(0,1).join(',')}`);
+    if (s.type === 'insert')   out.push(`✏️ INSERT INTO ${s.table}`);
+    if (s.type === 'update')   out.push(`✏️ UPDATE ${s.table}`);
+    if (s.type === 'delete')   out.push(`✏️ DELETE FROM ${s.table}`);
+    if (s.type === 'merge')    out.push(`✏️ MERGE INTO ${s.table}`);
+    if (s.type === 'call_user') out.push(`🔧 ${s.label}`);
+    if (s.type === 'call_system') out.push(`📦 ${s.label}`);
+    if (s.type === 'commit')   out.push('💾 COMMIT');
+    if (s.type === 'rollback') out.push('↩ ROLLBACK');
+    if (s.type === 'if')       out.push(`⬦ IF ${(s.condition||'').slice(0,20)}`);
+    if (s.type === 'for_loop' || s.type === 'while_loop' || s.type === 'loop')
+      out.push('🔄 내부 반복');
+  }
+  return [...new Set(out)];
+}
+
+function generateFlow(lines, steps, prevIds, firstLabel = null) {
+  let curr = prevIds;
+  for (let si = 0; si < steps.length; si++) {
+    const lbl = si === 0 ? firstLabel : null;
+    const { endIds } = generateNode(lines, steps[si], curr, lbl);
+    curr = endIds;
+    if (!curr.length) break;
+  }
+  return { endIds: curr };
+}
+
+function generateNode(lines, step, prevIds, edgeLabel = null) {
+  const AT = arrowTo(edgeLabel);
+
+  switch (step.type) {
+    case 'select': {
+      const id = nid('SEL');
+      lines.push(`  ${id}["📖 ${esc(step.label)}"]`);
+      lines.push(`  class ${id} readOp`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'insert': case 'update': case 'delete': case 'merge': {
+      const id = nid('DML');
+      lines.push(`  ${id}["✏️ ${esc(step.label)}"]`);
+      lines.push(`  class ${id} writeOp`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'call_user': {
+      const id = nid('CALL');
+      lines.push(`  ${id}["🔧 ${esc(step.label)}"]`);
+      lines.push(`  class ${id} callOp`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'call_system': {
+      const id = nid('SYS');
+      lines.push(`  ${id}["📦 ${esc(step.label)}"]`);
+      lines.push(`  class ${id} sysCall`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'dynamic': {
+      const id = nid('DYN');
+      lines.push(`  ${id}["⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행"]`);
+      lines.push(`  class ${id} sysCall`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'commit': {
+      const id = nid('CMT');
+      lines.push(`  ${id}["💾 ${esc(step.label)}"]`);
+      lines.push(`  class ${id} commitNode`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'rollback': {
+      const id = nid('RBK');
+      lines.push(`  ${id}["↩ ROLLBACK"]`);
+      lines.push(`  class ${id} rollbackNode`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'return': {
+      const id = nid('RET');
+      lines.push(`  ${id}(["↪ ${esc(step.label)}"])`);
+      lines.push(`  class ${id} endNode`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [] };
+    }
+    case 'raise': {
+      const id = nid('RAISE');
+      lines.push(`  ${id}["⚠️ ${esc(step.label)}"]`);
+      lines.push(`  class ${id} excNode`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [] };
+    }
+    case 'cursor': {
+      const id = nid('CUR');
+      const icon = step.op === 'FETCH' ? '📋' : step.op === 'OPEN' ? '🔓' : '🔒';
+      lines.push(`  ${id}["${icon} ${esc(step.label)}"]`);
+      lines.push(`  class ${id} cursorOp`);
+      prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+      lines.push('');
+      return { endIds: [id] };
+    }
+    case 'if': return generateIfNode(lines, step, prevIds, edgeLabel);
+    case 'for_loop':   return generateLoopNode(lines, step, prevIds, edgeLabel, `🔄 FOR ${esc(step.header)}`);
+    case 'while_loop': return generateLoopNode(lines, step, prevIds, edgeLabel, `🔄 WHILE ${esc(step.condition)}`);
+    case 'loop':       return generateLoopNode(lines, step, prevIds, edgeLabel, '🔄 LOOP');
+    default: return { endIds: prevIds };
+  }
+}
+
+function generateIfNode(lines, step, prevIds, edgeLabel) {
+  const decId = nid('IF');
+  const AT = arrowTo(edgeLabel);
+  lines.push(`  ${decId}{"IF\\n${esc(step.condition || '조건')}"}`);
+  lines.push(`  class ${decId} decision`);
+  prevIds.forEach(p => lines.push(`  ${p} ${AT} ${decId}`));
+  lines.push('');
+
+  const branchEnds = [];
+  const hasElse = step.branches.some(b => b.condition === null);
+
+  for (let bi = 0; bi < step.branches.length; bi++) {
+    const br = step.branches[bi];
+    const lbl = bi === 0 ? '예' : (br.condition === null ? '아니오' : esc(br.label));
+    if (!br.steps.length) { branchEnds.push(decId); continue; }
+    const { endIds } = generateFlow(lines, br.steps, [decId], lbl);
+    branchEnds.push(...endIds);
+  }
+
+  if (!hasElse) branchEnds.push(decId);
+
+  const valid = [...new Set(branchEnds)].filter(Boolean);
+  if (!valid.length) return { endIds: [] };
+  if (valid.length === 1 && valid[0] === decId) return { endIds: valid };
+
+  const joinId = nid('JOIN');
+  lines.push(`  ${joinId}((●))`);
+  lines.push(`  class ${joinId} mergeNode`);
+  valid.forEach(e => lines.push(`  ${e} --> ${joinId}`));
+  lines.push('');
+  return { endIds: [joinId] };
+}
+
+function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel) {
+  const id = nid('LOOP');
+  const AT = arrowTo(edgeLabel);
+  const summary = summarizeSteps(step.steps).slice(0, 4).map(s => esc(s)).join('\\n');
+  lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
+  lines.push(`  class ${id} loopBox`);
+  prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+  lines.push('');
+  return { endIds: [id] };
+}
+
+function generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }) {
+  _n = 0;
+  const lines = [
+    'flowchart TD',
+    '  classDef startNode fill:#1a237e,stroke:#7986cb,color:#e8eaf6',
+    '  classDef endNode   fill:#1a237e,stroke:#7986cb,color:#e8eaf6',
+    '  classDef paramNode fill:#0d3349,stroke:#4dd0e1,color:#e0f7fa',
+    '  classDef readOp    fill:#1b3a1b,stroke:#66bb6a,color:#c8e6c9',
+    '  classDef writeOp   fill:#3b1a1a,stroke:#ef5350,color:#ffcdd2',
+    '  classDef callOp    fill:#2a1a3a,stroke:#ab47bc,color:#f3e5f5',
+    '  classDef sysCall   fill:#1a2535,stroke:#42a5f5,color:#bbdefb',
+    '  classDef loopBox   fill:#2a2a12,stroke:#d4e157,color:#f9fbe7',
+    '  classDef commitNode fill:#0d2b22,stroke:#26a69a,color:#b2dfdb',
+    '  classDef rollbackNode fill:#3a1a1a,stroke:#ef5350,color:#ffcdd2',
+    '  classDef decision  fill:#3e2200,stroke:#ffa000,color:#fff9c4',
+    '  classDef excNode   fill:#2a2a2a,stroke:#bdbdbd,color:#f5f5f5',
+    '  classDef mergeNode fill:#263238,stroke:#546e7a,color:#cfd8dc',
+    '  classDef cursorOp  fill:#1a2a3a,stroke:#80cbc4,color:#e0f2f1',
+    '',
+  ];
+
+  const inParams  = params.filter(p => p.direction === 'IN' || p.direction === 'IN OUT');
+  const outParams = params.filter(p => p.direction === 'OUT' || p.direction === 'IN OUT');
+
+  lines.push(`  START(["▶ START\\n${esc(procName)}  ·  ${esc(procType)}"])`);
+  lines.push(`  class START startNode`);
+  lines.push('');
+
+  let prevIds = ['START'];
+
+  if (inParams.length) {
+    const pid = 'P_IN';
+    const lbl = inParams.map(p => `${p.name} : ${p.dataType}`).join('\\n');
+    lines.push(`  ${pid}["📥 입력 파라미터\\n${esc(lbl)}"]`);
+    lines.push(`  class ${pid} paramNode`);
+    prevIds.forEach(p => lines.push(`  ${p} --> ${pid}`));
+    lines.push('');
+    prevIds = [pid];
+  }
+
+  const { endIds } = generateFlow(lines, mainSteps, prevIds);
+  prevIds = endIds.length ? endIds : ['START'];
+
+  if (outParams.length) {
+    const pid = 'P_OUT';
+    const lbl = outParams.map(p => `${p.name} : ${p.dataType}`).join('\\n');
+    lines.push(`  ${pid}["📤 출력 파라미터\\n${esc(lbl)}"]`);
+    lines.push(`  class ${pid} paramNode`);
+    prevIds.forEach(p => lines.push(`  ${p} --> ${pid}`));
+    lines.push('');
+    prevIds = [pid];
+  }
+
+  lines.push(`  END_N(["■ END"])`);
+  lines.push(`  class END_N endNode`);
+  prevIds.forEach(p => lines.push(`  ${p} --> END_N`));
+
+  if (exceptionHandlers.length) {
+    const excId = 'EXC_BLOCK';
+    const hlist = exceptionHandlers.map(h => `WHEN ${h.condition}`).join('\\n');
+    lines.push('');
+    lines.push(`  ${excId}["⚠️ EXCEPTION\\n${esc(hlist)}"]`);
+    lines.push(`  class ${excId} excNode`);
+    lines.push(`  START -.->|"오류 발생 시"| ${excId}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ── Legacy metadata parsers (used by Summary tab) ─────────────────────────────
 
 function parseParameters(src) {
   const params = [];
-  // Match procedure/function header parameter block
   const m = src.match(/(?:PROCEDURE|FUNCTION)\s+\w+\s*\(([\s\S]*?)\)\s*(?:RETURN|IS|AS)/i);
   if (!m) return params;
-
   const lines = splitByComma(m[1]);
   for (const line of lines) {
-    const trimmed = line.trim().replace(/\s+/g, ' ');
-    // name [IN|OUT|IN OUT] type [DEFAULT|:= ...]
-    const pm = trimmed.match(/^(\w+)\s+((?:IN\s+OUT|OUT|IN)\s+)?([A-Z0-9_$%]+(?:\s*\([^)]*\))?)/i);
+    const pm = line.trim().replace(/\s+/g,' ').match(/^(\w+)\s+((?:IN\s+OUT|OUT|IN)\s+)?([A-Z0-9_$%]+(?:\s*\([^)]*\))?)/i);
     if (pm) {
-      let dir = (pm[2] || 'IN').trim().toUpperCase().replace(/\s+/g, ' ');
-      if (!['IN', 'OUT', 'IN OUT'].includes(dir)) dir = 'IN';
+      let dir = (pm[2]||'IN').trim().toUpperCase().replace(/\s+/g,' ');
+      if (!['IN','OUT','IN OUT'].includes(dir)) dir = 'IN';
       params.push({ name: pm[1].toUpperCase(), direction: dir, dataType: pm[3].toUpperCase() });
     }
   }
   return params;
 }
 
+function splitByComma(str) {
+  const r = []; let d = 0, c = '';
+  for (const ch of str) {
+    if (ch==='(') { d++; c+=ch; } else if (ch===')') { d--; c+=ch; }
+    else if (ch===',' && d===0) { r.push(c.trim()); c=''; } else c+=ch;
+  }
+  if (c.trim()) r.push(c.trim());
+  return r;
+}
+
 function parseReads(upper) {
   const tables = new Set();
-  // FROM table, JOIN table
   const re = /(?:FROM|JOIN)\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g;
   let m;
   while ((m = re.exec(upper)) !== null) {
-    const tbl = m[2] || m[1]; // prefer table part if schema-qualified
-    if (!SQL_KEYWORDS.has(tbl) && !isSystemTable(tbl)) tables.add(tbl);
+    const t = m[2] || m[1];
+    if (!SQL_KEYWORDS.has(t) && !isSystemTable(t)) tables.add(t);
   }
   return [...tables];
 }
 
 function parseWrites(upper) {
   const writes = [];
-  const patterns = [
-    { re: /INSERT\s+(?:ALL\s+)?INTO\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op: 'INSERT' },
-    { re: /UPDATE\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?\s+SET/g, op: 'UPDATE' },
-    { re: /DELETE\s+(?:FROM\s+)?([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op: 'DELETE' },
-    { re: /MERGE\s+INTO\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op: 'MERGE' },
+  const pats = [
+    { re: /INSERT\s+(?:ALL\s+)?INTO\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op:'INSERT' },
+    { re: /UPDATE\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?\s+SET/g, op:'UPDATE' },
+    { re: /DELETE\s+(?:FROM\s+)?([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op:'DELETE' },
+    { re: /MERGE\s+INTO\s+([A-Z_][A-Z0-9_$#]*)(?:\s*\.\s*([A-Z_][A-Z0-9_$#]*))?/g, op:'MERGE' },
   ];
-  for (const { re, op } of patterns) {
+  for (const { re, op } of pats) {
     let m;
     while ((m = re.exec(upper)) !== null) {
-      const tbl = m[2] || m[1];
-      if (!SQL_KEYWORDS.has(tbl) && !isSystemTable(tbl)) {
-        if (!writes.find(w => w.table === tbl && w.op === op)) writes.push({ table: tbl, op });
-      }
+      const t = m[2] || m[1];
+      if (!SQL_KEYWORDS.has(t) && !isSystemTable(t) && !writes.find(w=>w.table===t&&w.op===op))
+        writes.push({ table: t, op });
     }
   }
   return writes;
@@ -138,40 +626,27 @@ function parseCursors(upper) {
   const re = /CURSOR\s+(\w+)\s+(?:\([^)]*\)\s+)?IS\s+SELECT\s+[\s\S]{0,200}?FROM\s+([A-Z_][A-Z0-9_$#]*)/g;
   let m;
   while ((m = re.exec(upper)) !== null) {
-    const tbl = m[2];
-    if (!SQL_KEYWORDS.has(tbl) && !isSystemTable(tbl)) cursors.push({ name: m[1], table: tbl });
+    const t = m[2];
+    if (!SQL_KEYWORDS.has(t) && !isSystemTable(t)) cursors.push({ name: m[1], table: t });
   }
   return cursors;
 }
 
 function parseProcedureCalls(src, currentName) {
-  const calls = new Map(); // name -> type
+  const calls = new Map();
   const upper = src.toUpperCase();
-
-  // EXECUTE IMMEDIATE
   if (/EXECUTE\s+IMMEDIATE/i.test(upper)) calls.set('EXECUTE IMMEDIATE', 'dynamic');
-
-  // System packages: DBMS_*, UTL_*, HTP, HTF, APEX_*
   const sysPkgRe = /\b(DBMS_[A-Z0-9_]+|UTL_[A-Z0-9_]+|HTP|HTF|APEX_[A-Z0-9_]+|FND_[A-Z0-9_]+)\b/g;
   let m;
   while ((m = sysPkgRe.exec(upper)) !== null) calls.set(m[1], 'system');
-
-  // Qualified calls: pkg.proc(...) or schema.pkg.proc(...)
   const qualRe = /\b([A-Z_][A-Z0-9_$]*)\s*\.\s*([A-Z_][A-Z0-9_$]*)\s*(?:\.\s*([A-Z_][A-Z0-9_$]*)\s*)?\(/g;
   while ((m = qualRe.exec(upper)) !== null) {
-    const part1 = m[1], part2 = m[2], part3 = m[3];
-    if (SQL_KEYWORDS.has(part1)) continue;
-    if (ORACLE_SYSTEM_PREFIXES.some(p => part1.startsWith(p))) continue;
-    const callName = part3 ? `${part1}.${part2}.${part3}` : `${part1}.${part2}`;
-    if (!BUILTIN_FUNCTIONS.has(part2) && !BUILTIN_FUNCTIONS.has(part3 || '')) {
-      calls.set(callName, 'procedure');
-    }
+    if (SQL_KEYWORDS.has(m[1])) continue;
+    if (ORACLE_SYSTEM_PREFIXES.some(p => m[1].startsWith(p))) continue;
+    const name = m[3] ? `${m[1]}.${m[2]}.${m[3]}` : `${m[1]}.${m[2]}`;
+    if (!BUILTIN_FUNCTIONS.has(m[2]) && !BUILTIN_FUNCTIONS.has(m[3]||'')) calls.set(name, 'procedure');
   }
-
-  // Remove current procedure to avoid self-reference
-  const currentUpper = currentName.toUpperCase();
-  calls.delete(currentUpper);
-
+  calls.delete(currentName.toUpperCase());
   return [...calls.entries()].map(([name, type]) => ({ name, type }));
 }
 
@@ -180,167 +655,49 @@ function parseExceptions(upper) {
   const re = /WHEN\s+((?:[A-Z_][A-Z0-9_$]*\.)?[A-Z_][A-Z0-9_$]*)\s+THEN/g;
   let m;
   while ((m = re.exec(upper)) !== null) {
-    const exc = m[1].trim();
-    if (exc !== 'OTHERS' || !excs.includes('OTHERS')) {
-      if (!excs.includes(exc)) excs.push(exc);
-    }
+    const e = m[1].trim();
+    if (!excs.includes(e)) excs.push(e);
   }
   return excs;
 }
 
 function parseVariables(src) {
   const vars = [];
-  // Match DECLARE section variables
-  const declareMatch = src.match(/DECLARE\s+([\s\S]*?)BEGIN/i);
-  if (!declareMatch) return vars;
-  const block = declareMatch[1];
+  const dm = src.match(/DECLARE\s+([\s\S]*?)BEGIN/i);
+  if (!dm) return vars;
   const re = /^\s*(\w+)\s+([A-Z0-9_$%]+(?:\s*\([^)]*\))?)\s*(?::=|DEFAULT|;)/gim;
   let m;
-  while ((m = re.exec(block)) !== null) {
+  while ((m = re.exec(dm[1])) !== null) {
     if (!SQL_KEYWORDS.has(m[1].toUpperCase())) vars.push({ name: m[1], type: m[2] });
   }
-  return vars.slice(0, 20); // limit
+  return vars.slice(0, 20);
 }
 
-function generateMermaid({ procName, procType, params, reads, writes, calls, exceptions, cursors }) {
-  const lines = [
-    'flowchart TD',
-    '  classDef inputParam fill:#1a4a72,stroke:#3498db,color:#aed6f1,rx:8',
-    '  classDef outputParam fill:#1a5e3a,stroke:#2ecc71,color:#a9dfbf,rx:8',
-    '  classDef inoutParam fill:#512e5f,stroke:#8e44ad,color:#d2b4de,rx:8',
-    '  classDef readTable fill:#5d4037,stroke:#d4ac0d,color:#fdebd0',
-    '  classDef writeTable fill:#7b241c,stroke:#e74c3c,color:#fadbd8',
-    '  classDef procNode fill:#0d47a1,stroke:#4fc1ff,color:#e3f2fd,stroke-width:2px',
-    '  classDef callProc fill:#1b3a5c,stroke:#5dade2,color:#d6eaf8',
-    '  classDef callSystem fill:#2e4057,stroke:#85c1e9,color:#d6eaf8',
-    '  classDef callDynamic fill:#4a235a,stroke:#bb8fce,color:#e8daef',
-    '  classDef excNode fill:#424242,stroke:#9e9e9e,color:#e0e0e0',
-    '  classDef cursorNode fill:#4a4000,stroke:#f9ca24,color:#ffeaa7',
-    '',
-  ];
-
-  const inParams = params.filter(p => p.direction === 'IN' || p.direction === 'IN OUT');
-  const outParams = params.filter(p => p.direction === 'OUT' || p.direction === 'IN OUT');
-
-  // ── Input Parameters
-  if (inParams.length > 0) {
-    lines.push('  subgraph INPUT ["📥 입력 파라미터"]');
-    for (const p of inParams) {
-      lines.push(`    IN_${sanitizeId(p.name)}(["${p.name}\\n${p.direction} ${p.dataType}"])`);
-    }
-    lines.push('  end');
-    lines.push('');
-  }
-
-  // ── Read Tables
-  if (reads.length > 0) {
-    lines.push('  subgraph READS ["📖 SELECT (읽기)"]');
-    for (const tbl of reads) {
-      const isCursor = cursors.some(c => c.table === tbl);
-      lines.push(`    R_${sanitizeId(tbl)}[("${tbl}${isCursor ? '\\n(CURSOR)' : ''}")]`);
-    }
-    lines.push('  end');
-    lines.push('');
-  }
-
-  // ── Main Process Node
-  lines.push(`  PROC{{"⚙️ ${procName}\\n${procType}"}}`);
-  lines.push('  class PROC procNode');
-  lines.push('');
-
-  // ── Write Tables
-  if (writes.length > 0) {
-    lines.push('  subgraph WRITES ["✏️ DML (쓰기)"]');
-    for (const w of writes) {
-      const id = `W_${sanitizeId(w.table)}_${w.op}`;
-      lines.push(`    ${id}[("${w.table}\\n${w.op}")]`);
-    }
-    lines.push('  end');
-    lines.push('');
-  }
-
-  // ── Called Procedures
-  const userCalls = calls.filter(c => c.type === 'procedure');
-  const sysCalls = calls.filter(c => c.type === 'system');
-  const dynCalls = calls.filter(c => c.type === 'dynamic');
-
-  if (calls.length > 0) {
-    lines.push('  subgraph CALLS ["🔧 호출"]');
-    for (const c of dynCalls) {
-      lines.push(`    C_${sanitizeId(c.name)}[["${c.name}\\n(동적 SQL)"]]`);
-    }
-    for (const c of sysCalls) {
-      lines.push(`    C_${sanitizeId(c.name)}[["${c.name}"]]`);
-    }
-    for (const c of userCalls) {
-      lines.push(`    C_${sanitizeId(c.name)}[["${c.name}()"]]`);
-    }
-    lines.push('  end');
-    lines.push('');
-  }
-
-  // ── Output Parameters
-  if (outParams.length > 0) {
-    lines.push('  subgraph OUTPUT ["📤 출력 파라미터"]');
-    for (const p of outParams) {
-      lines.push(`    OUT_${sanitizeId(p.name)}(["${p.name}\\n${p.direction} ${p.dataType}"])`);
-    }
-    lines.push('  end');
-    lines.push('');
-  }
-
-  // ── Exceptions
-  if (exceptions.length > 0) {
-    const excLabel = exceptions.slice(0, 6).join('\\n');
-    lines.push(`  EXC["⚠️ EXCEPTION\\n${excLabel}"]`);
-    lines.push('  class EXC excNode');
-    lines.push('');
-  }
-
-  // ── Edges
-  for (const p of inParams) lines.push(`  IN_${sanitizeId(p.name)} --> PROC`);
-  for (const tbl of reads) lines.push(`  R_${sanitizeId(tbl)} -->|"읽기"| PROC`);
-  for (const w of writes) lines.push(`  PROC -->|"${w.op}"| W_${sanitizeId(w.table)}_${w.op}`);
-  for (const c of calls) lines.push(`  PROC -->|"호출"| C_${sanitizeId(c.name)}`);
-  for (const p of outParams) lines.push(`  PROC --> OUT_${sanitizeId(p.name)}`);
-  if (exceptions.length > 0) lines.push(`  PROC -. "예외처리" .-> EXC`);
-
-  // ── Class assignments
-  for (const p of inParams) {
-    const cls = p.direction === 'IN OUT' ? 'inoutParam' : 'inputParam';
-    lines.push(`  class IN_${sanitizeId(p.name)} ${cls}`);
-  }
-  for (const p of outParams) {
-    const cls = p.direction === 'IN OUT' ? 'inoutParam' : 'outputParam';
-    lines.push(`  class OUT_${sanitizeId(p.name)} ${cls}`);
-  }
-  for (const tbl of reads) lines.push(`  class R_${sanitizeId(tbl)} readTable`);
-  for (const w of writes) lines.push(`  class W_${sanitizeId(w.table)}_${w.op} writeTable`);
-  for (const c of dynCalls) lines.push(`  class C_${sanitizeId(c.name)} callDynamic`);
-  for (const c of sysCalls) lines.push(`  class C_${sanitizeId(c.name)} callSystem`);
-  for (const c of userCalls) lines.push(`  class C_${sanitizeId(c.name)} callProc`);
-
-  return lines.join('\n');
-}
+// ── Main Export ───────────────────────────────────────────────────────────────
 
 export function analyzePLSQL(source, procName, procType) {
   const cleaned = removeComments(source);
   const upper = cleaned.toUpperCase();
 
-  const params = parseParameters(cleaned);
-  const cursors = parseCursors(upper);
-  const reads = parseReads(upper);
-  const writes = parseWrites(upper);
-  const calls = parseProcedureCalls(cleaned, procName);
+  const params     = parseParameters(cleaned);
+  const cursors    = parseCursors(upper);
+  const reads      = parseReads(upper);
+  const writes     = parseWrites(upper);
+  const calls      = parseProcedureCalls(cleaned, procName);
   const exceptions = parseExceptions(upper);
-  const variables = parseVariables(cleaned);
+  const variables  = parseVariables(cleaned);
 
-  // Merge cursor tables into reads
   for (const c of cursors) {
     if (!reads.includes(c.table)) reads.push(c.table);
   }
 
-  const mermaid = generateMermaid({ procName, procType, params, reads, writes, calls, exceptions, cursors });
+  let mermaid;
+  try {
+    const { mainSteps, exceptionHandlers } = buildFlowAST(source);
+    mermaid = generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers });
+  } catch {
+    mermaid = 'flowchart TD\n  ERR["분석 오류"]';
+  }
 
   return { procName, procType, params, reads, writes, calls, exceptions, cursors, variables, mermaid };
 }
