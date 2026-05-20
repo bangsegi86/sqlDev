@@ -12,8 +12,46 @@ export const OJDBC_PATH = join(JDBC_DIR, 'ojdbc11.jar');
 export const BRIDGE_CLASS_FILE = join(BRIDGE_DIR, 'OracleBridge.class');
 const OJDBC_URL = 'https://repo1.maven.org/maven2/com/oracle/database/jdbc/ojdbc11/23.7.0.25.01/ojdbc11-23.7.0.25.01.jar';
 const CP_SEP = process.platform === 'win32' ? ';' : ':';
+const IS_WIN = process.platform === 'win32';
+const JAVA_BIN = IS_WIN ? 'java.exe' : 'java';
 
 const processes = new Map(); // id -> { proc, buffer, pending: {resolve,reject} | null }
+
+// Auto-detect java executable from common locations (DBeaver, JDK, JRE installs)
+function findJava() {
+  // 1. JAVA_HOME env var
+  if (process.env.JAVA_HOME) {
+    const p = join(process.env.JAVA_HOME, 'bin', JAVA_BIN);
+    if (existsSync(p)) return p;
+  }
+
+  const candidates = IS_WIN ? [
+    // DBeaver bundled JVM
+    'C:\\Program Files\\DBeaver\\jre\\bin\\java.exe',
+    'C:\\Program Files\\DBeaverCommunity\\jre\\bin\\java.exe',
+    join(process.env.LOCALAPPDATA || 'C:\\Users\\Public', 'DBeaver', 'jre', 'bin', 'java.exe'),
+    // Oracle JDK/JRE
+    ...['21', '17', '11', '8'].flatMap(v => [
+      `C:\\Program Files\\Java\\jre${v}\\bin\\java.exe`,
+      `C:\\Program Files\\Java\\jdk-${v}\\bin\\java.exe`,
+      `C:\\Program Files\\Java\\jdk${v}\\bin\\java.exe`,
+    ]),
+    // Eclipse Adoptium / Temurin
+    ...['21', '17', '11'].map(v => `C:\\Program Files\\Eclipse Adoptium\\jre-${v}\\bin\\java.exe`),
+    // Microsoft JDK
+    ...['21', '17', '11'].map(v => `C:\\Program Files\\Microsoft\\jdk-${v}\\bin\\java.exe`),
+  ] : [
+    // DBeaver bundled JVM (Linux/Mac)
+    '/usr/share/dbeaver/jre/bin/java',
+    '/opt/dbeaver/jre/bin/java',
+    '/Applications/DBeaverCommunity.app/Contents/Eclipse/jre/Contents/Home/bin/java',
+    '/usr/bin/java',
+    '/usr/local/bin/java',
+  ];
+
+  for (const c of candidates) if (existsSync(c)) return c;
+  return 'java'; // fallback: rely on PATH
+}
 
 export function getJdbcStatus() {
   return {
@@ -74,7 +112,9 @@ export async function downloadAndCompile() {
 
 function spawnBridge() {
   const cp = `${BRIDGE_DIR}${CP_SEP}${OJDBC_PATH}`;
-  const proc = spawn('java', ['-cp', cp, 'OracleBridge'], {
+  const javaExe = findJava();
+  console.log(`[JDBC] java: ${javaExe}`);
+  const proc = spawn(javaExe, ['-cp', cp, 'OracleBridge'], {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const state = { proc, buffer: '', pending: null };
