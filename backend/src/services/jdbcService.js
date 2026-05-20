@@ -45,11 +45,12 @@ function findJava() {
 }
 
 export function getJdbcStatus() {
+  const jarOk = existsSync(OJDBC_PATH) && isValidJar(OJDBC_PATH);
   return {
-    driverDownloaded: existsSync(OJDBC_PATH),
+    driverDownloaded: jarOk,
     bridgeCompiled: existsSync(BRIDGE_CLASS_FILE),
     jreReady: existsSync(JRE_JAVA),
-    available: existsSync(OJDBC_PATH) && existsSync(BRIDGE_CLASS_FILE) && existsSync(JRE_JAVA),
+    available: jarOk && existsSync(BRIDGE_CLASS_FILE) && existsSync(JRE_JAVA),
   };
 }
 
