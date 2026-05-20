@@ -167,7 +167,7 @@ function spawnBridge() {
   const proc = spawn(javaExe, ['-cp', cp, 'OracleBridge'], {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const state = { proc, buffer: '', stderrBuf: '', pending: null };
+  const state = { proc, buffer: '', stderrBuf: '', pending: null, queue: Promise.resolve() };
 
   const fail = (err) => {
     if (state.pending) { state.pending.reject(err); state.pending = null; }
@@ -207,8 +207,7 @@ function spawnBridge() {
 }
 
 function send(state, cmd) {
-  return new Promise((resolve, reject) => {
-    if (state.pending) return reject(new Error('Bridge busy'));
+  const task = () => new Promise((resolve, reject) => {
     state.pending = { resolve, reject };
     state.proc.stdin.write(cmd + '\n');
     setTimeout(() => {
@@ -218,6 +217,10 @@ function send(state, cmd) {
       }
     }, 30000);
   });
+  // Serialize all commands through a queue — bridge handles one at a time
+  const p = state.queue.then(task, task);
+  state.queue = p.catch(() => {});
+  return p;
 }
 
 export async function jdbcTestConnection({ host, port, serviceName, username, password }) {
