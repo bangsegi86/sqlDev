@@ -207,6 +207,57 @@ backend/data/connections.json
 
 ---
 
+## NJS-116 오류 해결 (구형 Oracle 인증 방식)
+
+`NJS-116: password verifier type 0x939 is not supported` 오류는 Oracle DB가 구형 10g 인증 방식을 사용할 때 발생합니다.  
+DBeaver(JDBC)는 이 방식을 지원하지만, oracledb Thin Mode는 지원하지 않습니다.
+
+### 방법 1 — DBA에게 비밀번호 재설정 요청 (간단)
+
+비밀번호를 동일하게 재설정하면 Oracle이 새 인증 방식(11g/12c)을 함께 생성합니다.
+
+```sql
+-- DBA가 실행 (비밀번호 내용은 동일하게 유지됨)
+ALTER USER wmssj IDENTIFIED BY <현재비밀번호>;
+```
+
+### 방법 2 — Oracle Instant Client 설치 후 Thick Mode 전환
+
+Instant Client가 있으면 DBeaver처럼 모든 Oracle 인증 방식을 지원합니다.
+
+**1) Oracle Instant Client 다운로드 및 설치**
+
+Oracle 공식 사이트 또는 사내 배포본에서 Instant Client Basic 패키지를 설치합니다.
+
+- Linux 예시: `/opt/oracle/instantclient_21_1/`
+- Windows 예시: `C:\oracle\instantclient_21_1\`
+
+**2) 환경변수 설정 후 서버 실행**
+
+```bash
+# Linux / Mac
+export ORACLE_CLIENT_LIB_DIR=/opt/oracle/instantclient_21_1
+npm run dev
+
+# Windows (PowerShell)
+$env:ORACLE_CLIENT_LIB_DIR = "C:\oracle\instantclient_21_1"
+npm run dev
+```
+
+또는 `backend/.env` 파일에 저장:
+
+```
+ORACLE_CLIENT_LIB_DIR=/opt/oracle/instantclient_21_1
+```
+
+서버 시작 시 아래 로그가 나오면 Thick Mode 활성화 성공입니다.
+
+```
+[Oracle] Thick Mode 활성화: /opt/oracle/instantclient_21_1
+```
+
+---
+
 ## 자주 발생하는 오류
 
 ### `연결 테스트 실패 - ORA-12541`

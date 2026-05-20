@@ -1,5 +1,18 @@
 import oracledb from 'oracledb';
 
+// Thick Mode: Oracle Instant Client 경로가 환경변수로 설정되면 활성화
+// export ORACLE_CLIENT_LIB_DIR=/opt/oracle/instantclient_21_1
+if (process.env.ORACLE_CLIENT_LIB_DIR) {
+  try {
+    oracledb.initOracleClient({ libDir: process.env.ORACLE_CLIENT_LIB_DIR });
+    console.log(`[Oracle] Thick Mode 활성화: ${process.env.ORACLE_CLIENT_LIB_DIR}`);
+  } catch (e) {
+    console.warn(`[Oracle] Thick Mode 초기화 실패 (Thin Mode로 계속): ${e.message}`);
+  }
+} else {
+  console.log('[Oracle] Thin Mode로 실행 중 (Instant Client 불필요)');
+}
+
 oracledb.fetchAsString = [oracledb.CLOB];
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 
