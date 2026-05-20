@@ -1,5 +1,5 @@
 import { spawn, execFile } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, openSync, readSync, closeSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import https from 'https';
@@ -86,10 +86,14 @@ function downloadFile(url, dest) {
 
     const follow = (u, depth = 0) => {
       if (depth > 10) { reject(new Error('Too many redirects')); return; }
-      https.get(u, (res) => {
+      const requester = u.startsWith('http://') ? http : https;
+      requester.get(u, (res) => {
         if ([301, 302, 307, 308].includes(res.statusCode)) {
-          res.resume(); // discard redirect body
-          follow(res.headers.location, depth + 1);
+          res.resume();
+          const loc = res.headers.location;
+          // Handle relative redirects
+          const next = loc.startsWith('http') ? loc : new URL(loc, u).href;
+          follow(next, depth + 1);
           return;
         }
         if (res.statusCode !== 200) {
@@ -97,7 +101,6 @@ function downloadFile(url, dest) {
           reject(new Error(`HTTP ${res.statusCode} — ${u}`));
           return;
         }
-        // Only create file once we have the final 200 response
         const file = createWriteStream(dest);
         res.pipe(file);
         file.on('finish', () => file.close(resolve));
@@ -109,6 +112,21 @@ function downloadFile(url, dest) {
   });
 }
 
+function isValidJar(filePath) {
+  try {
+    const stat = statSync(filePath);
+    if (stat.size < 1024 * 1024) return false; // JAR must be > 1 MB
+    // ZIP/JAR magic bytes: PK (0x50 0x4B)
+    const buf = Buffer.alloc(2);
+    const fd = openSync(filePath, 'r');
+    readSync(fd, buf, 0, 2, 0);
+    closeSync(fd);
+    return buf[0] === 0x50 && buf[1] === 0x4B;
+  } catch {
+    return false;
+  }
+}
+
 function compile() {
   return new Promise((resolve, reject) => {
     execFile('javac', ['-cp', OJDBC_PATH, '-d', BRIDGE_DIR,
@@ -118,8 +136,18 @@ function compile() {
 }
 
 export async function downloadAndCompile() {
-  // ojdbc11.jar 다운로드
-  if (!existsSync(OJDBC_PATH)) await downloadFile(OJDBC_URL, OJDBC_PATH);
+  // ojdbc11.jar 다운로드 (없거나 손상된 경우)
+  if (existsSync(OJDBC_PATH) && !isValidJar(OJDBC_PATH)) {
+    console.log('[JDBC] ojdbc11.jar이 손상되어 재다운로드합니다.');
+    try { rmSync(OJDBC_PATH); } catch {}
+  }
+  if (!existsSync(OJDBC_PATH)) {
+    await downloadFile(OJDBC_URL, OJDBC_PATH);
+    if (!isValidJar(OJDBC_PATH)) {
+      try { rmSync(OJDBC_PATH); } catch {}
+      throw new Error('ojdbc11.jar 다운로드 실패: 파일이 손상되었습니다. 네트워크 연결을 확인하세요.');
+    }
+  }
   // OracleBridge.class는 저장소에 포함되어 있음
   if (!existsSync(BRIDGE_CLASS_FILE)) {
     try { await compile(); } catch (e) {
