@@ -26,21 +26,29 @@ export function getJdbcStatus() {
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     mkdirSync(dirname(dest), { recursive: true });
-    const file = createWriteStream(dest);
-    const get = (u) => https.get(u, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        file.close();
-        get(res.headers.location);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
-      res.pipe(file);
-      file.on('finish', () => file.close(resolve));
-    }).on('error', (e) => { unlink(dest, () => {}); reject(e); });
-    get(url);
+
+    const follow = (u, depth = 0) => {
+      if (depth > 10) { reject(new Error('Too many redirects')); return; }
+      https.get(u, (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode)) {
+          res.resume(); // discard redirect body
+          follow(res.headers.location, depth + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error(`HTTP ${res.statusCode} — ${u}`));
+          return;
+        }
+        // Only create file once we have the final 200 response
+        const file = createWriteStream(dest);
+        res.pipe(file);
+        file.on('finish', () => file.close(resolve));
+        file.on('error', (e) => { try { file.destroy(); } catch {} unlink(dest, () => {}); reject(e); });
+      }).on('error', (e) => { unlink(dest, () => {}); reject(e); });
+    };
+
+    follow(url);
   });
 }
 
