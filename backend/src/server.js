@@ -1,7 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import connectionsRouter from './routes/connections.js';
 import oracleRouter from './routes/oracle.js';
+import settingsRouter from './routes/settings.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,6 +13,7 @@ app.use(express.json());
 
 app.use('/api/connections', connectionsRouter);
 app.use('/api/oracle', oracleRouter);
+app.use('/api/settings', settingsRouter);
 
 app.use((err, req, res, _next) => {
   console.error(err.message);

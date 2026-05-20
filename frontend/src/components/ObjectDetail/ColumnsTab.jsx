@@ -3,9 +3,7 @@ import { api } from '../../api/client.js';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from '../Common/ColContextMenu.jsx';
 
-const NUM_COL_W = 44;
-const RESIZABLE = ['Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key', 'Comment'];
-const ALL_HEADERS = ['#', ...RESIZABLE];
+const HEADERS = ['#', 'Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key', 'Comment'];
 
 export default function ColumnsTab({ connectionId, schema, tableName }) {
   const [columns, setColumns] = useState([]);
@@ -14,7 +12,7 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
   const containerRef = useRef(null);
 
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
-    useColResize(RESIZABLE);
+    useColResize(HEADERS);
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -29,6 +27,7 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
 
   function handleFitData() {
     fitToData(columns.map(col => ({
+      '#': String(col.COLUMN_ID ?? ''),
       'Column Name': col.COLUMN_NAME ?? '',
       'Type': col.DATA_TYPE ?? '',
       'Length': col.DATA_PRECISION != null
@@ -42,24 +41,23 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
   }
 
   function handleFitScreen() {
-    fitToScreen(containerRef.current?.clientWidth ?? 600, NUM_COL_W);
+    fitToScreen(containerRef.current?.clientWidth ?? 600, 0);
   }
+
+  const w = h => colWidths[h] ? { width: colWidths[h], minWidth: colWidths[h] } : {};
 
   return (
     <div ref={containerRef} style={{ overflow: 'auto', flex: 1 }}>
       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, tableLayout: hasWidths ? 'fixed' : 'auto' }}>
         {hasWidths && (
           <colgroup>
-            <col style={{ width: NUM_COL_W }} />
-            {RESIZABLE.map(h => <col key={h} style={{ width: colWidths[h] }} />)}
+            {HEADERS.map(h => <col key={h} style={{ width: colWidths[h] }} />)}
           </colgroup>
         )}
         <thead>
           <tr>
-            {/* # column: fixed, non-resizable */}
-            <th style={{ ...thStyle, width: NUM_COL_W, minWidth: NUM_COL_W, cursor: 'default' }} onContextMenu={openMenu}>#</th>
-            {RESIZABLE.map(h => (
-              <th key={h} style={{ ...thStyle, ...(colWidths[h] ? { width: colWidths[h] } : {}), position: 'relative' }} onContextMenu={openMenu}>
+            {HEADERS.map(h => (
+              <th key={h} style={{ ...thStyle, ...w(h), position: 'relative' }} onContextMenu={openMenu}>
                 {h}
                 <div
                   style={{ position: 'absolute', right: 0, top: 0, width: 5, height: '100%', cursor: 'col-resize', zIndex: 1 }}

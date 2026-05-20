@@ -14,13 +14,15 @@ export default function ObjectExplorer() {
   const [schemas, setSchemas] = useState([]);
   const [objects, setObjects] = useState({});
   const [loading, setLoading] = useState({});
+  const [schemaError, setSchemaError] = useState(null);
 
   useEffect(() => {
-    if (!activeConnectionId || !isConnected) { setSchemas([]); return; }
+    if (!activeConnectionId || !isConnected) { setSchemas([]); setSchemaError(null); return; }
     setLoading(l => ({ ...l, schemas: true }));
+    setSchemaError(null);
     api.getSchemas(activeConnectionId)
       .then(s => { setSchemas(s); setObjects({}); })
-      .catch(() => {})
+      .catch(e => setSchemaError(e.message))
       .finally(() => setLoading(l => ({ ...l, schemas: false })));
   }, [activeConnectionId, isConnected]);
 
@@ -76,6 +78,11 @@ export default function ObjectExplorer() {
       </div>
       <div style={{ overflowY: 'auto' }}>
         {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
+        {schemaError && (
+          <div style={{ padding: '8px 10px', color: 'var(--danger)', fontSize: 11, wordBreak: 'break-word' }}>
+            ⚠ {schemaError}
+          </div>
+        )}
         {schemas.map(schema => {
           const schemaNodeId = `${activeConnectionId}-${schema}`;
           const schemaExpanded = expandedNodes.has(schemaNodeId);

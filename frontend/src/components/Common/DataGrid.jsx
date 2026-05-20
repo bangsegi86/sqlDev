@@ -2,9 +2,7 @@ import React, { useRef } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
-const NUM_COL_W = 44;
-
-export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, sortDir, rowOffset = 0 }) {
+export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, sortDir }) {
   const containerRef = useRef(null);
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
@@ -18,7 +16,7 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
   }
 
   function handleFitScreen() {
-    fitToScreen(containerRef.current?.clientWidth ?? 600, NUM_COL_W);
+    fitToScreen(containerRef.current?.clientWidth ?? 600, 44);
   }
 
   return (
@@ -27,14 +25,13 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
         <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: hasWidths ? 'fixed' : 'auto' }}>
           {hasWidths && (
             <colgroup>
-              <col style={{ width: NUM_COL_W }} />
+              <col style={{ width: 44 }} />
               {columns.map(c => <col key={c} style={{ width: colWidths[c] }} />)}
             </colgroup>
           )}
           <thead>
             <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              {/* # column: fixed, non-resizable, no context menu */}
-              <th style={thStyle({ width: NUM_COL_W, minWidth: NUM_COL_W, cursor: 'default', userSelect: 'none' })}>#</th>
+              <th style={thStyle({ width: 44, cursor: 'default' })}>#</th>
               {columns.map(col => (
                 <th
                   key={col}
@@ -61,7 +58,7 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
           <tbody>
             {rows.map((row, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.03)' }}>
-                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{rowOffset + i + 1}</td>
+                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{i + 1}</td>
                 {columns.map(col => {
                   const val = row[col];
                   return (

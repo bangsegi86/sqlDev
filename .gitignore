@@ -5,3 +5,8 @@ backend/data/connections.json
 .env
 backend/.env
 dist/
+backend/data/jdbc/
+backend/src/data/jdbc/
+backend/runtime/
+
+backend/src/data/settings.json

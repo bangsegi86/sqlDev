@@ -49,8 +49,8 @@ router.get('/:id/tables/:schema/:name/columns', wrap(async (req, res) => {
 }));
 
 router.get('/:id/tables/:schema/:name/data', wrap(async (req, res) => {
-  const { page, limit, orderBy, orderDir } = req.query;
-  res.json(await oracle.getTableData(req.params.id, req.params.schema, req.params.name, { page, limit, orderBy, orderDir }));
+  const { page, limit, orderBy, orderDir, filter } = req.query;
+  res.json(await oracle.getTableData(req.params.id, req.params.schema, req.params.name, { page, limit, orderBy, orderDir, filter }));
 }));
 
 router.get('/:id/tables/:schema/:name/ddl', wrap(async (req, res) => {
