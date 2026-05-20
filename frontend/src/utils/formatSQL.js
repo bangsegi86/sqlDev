@@ -71,17 +71,33 @@ function formatPLSQL(src) {
   const toks = tokenize(src).filter(t => t.t !== 'WS');
   const UP = tok => tok?.t === 'W' ? tok.v.toUpperCase() : null;
 
+  // Look ahead from pos to determine if ( contains a SELECT (subquery/inline view)
+  function isSubquery(pos) {
+    let depth = 1;
+    for (let j = pos + 1; j < toks.length; j++) {
+      if (toks[j].v === '(') depth++;
+      else if (toks[j].v === ')') { depth--; if (depth === 0) return false; }
+      else if (toks[j].t === 'W' && toks[j].v.toUpperCase() === 'SELECT') return true;
+    }
+    return false;
+  }
+
   const lines = [];
-  let cur = '';        // current line content
-  let curPrefix = '';  // leading whitespace for comma-first alignment
+  let cur = '';
+  let curPrefix = '';
   let level = 0;
 
-  // Context state
-  let caseDepth = 0;          // > 0 = inside CASE expression (all tokens inline)
-  let parenDepth = 0;         // > 0 = inside () (commas are inline)
-  let inSelectList = false;   // true between SELECT and FROM/INTO
-  let procHeaderSeen = false; // true after PROCEDURE/FUNCTION keyword
-  let inDeclSection = false;  // true after IS/AS until BEGIN
+  let caseDepth = 0;
+  let funcParenDepth = 0;   // depth inside function-call parens (not subquery parens)
+  let inSelectList = false;
+  let inFromList = false;
+  let procHeaderSeen = false;
+  let inDeclSection = false;
+
+  // Stack tracking paren types: 'func' | 'subquery'
+  const parenStack = [];
+  // Saved context per subquery level
+  const subqueryCtxStack = [];
 
   function flush() {
     const s = cur.trim();
@@ -119,23 +135,54 @@ function formatPLSQL(src) {
     if (tok.t === 'P') {
       const p = tok.v;
       if (p === '(') {
-        cur = cur.trimEnd() + '(';
-        parenDepth++;
+        const sub = isSubquery(i);
+        parenStack.push(sub ? 'subquery' : 'func');
+        if (sub) {
+          // Save context, flush current line with ( at end, then indent for subquery body
+          subqueryCtxStack.push({ inSelectList, inFromList, caseDepth, funcParenDepth });
+          inSelectList = false; inFromList = false; caseDepth = 0;
+          cur += '(';
+          flush();
+          level++;
+        } else {
+          // Function call: trim space before ( (e.g. DECODE() not DECODE ())
+          const prevTok = toks[i - 1];
+          if (prevTok?.t === 'W' || prevTok?.t === 'NUM') cur = cur.trimEnd();
+          cur += '(';
+          funcParenDepth++;
+        }
       } else if (p === ')') {
-        cur = cur.trimEnd() + ')';
-        parenDepth = Math.max(0, parenDepth - 1);
+        const typ = parenStack.length > 0 ? parenStack.pop() : 'func';
+        if (typ === 'subquery') {
+          flush();
+          level = Math.max(0, level - 1);
+          const ctx = subqueryCtxStack.pop();
+          if (ctx) {
+            inSelectList = ctx.inSelectList;
+            inFromList = ctx.inFromList;
+            caseDepth = ctx.caseDepth;
+            funcParenDepth = ctx.funcParenDepth;
+          }
+          cur = ')';
+        } else {
+          cur = cur.trimEnd() + ')';
+          funcParenDepth = Math.max(0, funcParenDepth - 1);
+        }
       } else if (p === '.') {
         cur = cur.trimEnd() + '.';
       } else if (p === ';') {
         cur = cur.trimEnd() + ';';
         flush();
-        inSelectList = false; caseDepth = 0; parenDepth = 0;
+        inSelectList = false; inFromList = false; caseDepth = 0;
       } else if (p === ',') {
-        // Comma-first: only in SELECT column list, not inside () or CASE
-        if (inSelectList && caseDepth === 0 && parenDepth === 0) {
+        if (funcParenDepth > 0 || caseDepth > 0) {
+          // Inside function call or CASE expression: inline comma
+          cur = cur.trimEnd() + ', ';
+        } else if (inSelectList || inFromList) {
+          // SELECT column list or comma-join table list: comma-first style
           cur = cur.trimEnd();
           flush();
-          curPrefix = '     '; // 5 spaces → `, col` aligns with SELECT data (indent+7 total)
+          curPrefix = '     ';
           cur = ', ';
         } else {
           cur = cur.trimEnd() + ', ';
@@ -149,7 +196,7 @@ function formatPLSQL(src) {
     // ── Word tokens ───────────────────────────────────────────────────────
     if (tok.t !== 'W') continue;
 
-    // Inside CASE expression: everything is inline (except END/CASE which manage depth)
+    // Inside CASE expression: everything inline (except END/CASE which manage depth)
     if (caseDepth > 0 && up !== 'END' && up !== 'CASE') {
       app(up); continue;
     }
@@ -193,7 +240,7 @@ function formatPLSQL(src) {
       case 'BEGIN': {
         flush();
         if (inDeclSection) {
-          level = Math.max(0, level - 1); // undo the AS-induced indent
+          level = Math.max(0, level - 1);
           inDeclSection = false;
         }
         cur = 'BEGIN'; flush(); level++;
@@ -203,7 +250,6 @@ function formatPLSQL(src) {
       // ── Block closers ──────────────────────────────────────────────────
       case 'END': {
         if (caseDepth > 0) {
-          // Closing CASE expression → inline
           app('END');
           caseDepth--;
           if (nextUp === 'CASE') { app('CASE'); i++; }
@@ -214,7 +260,6 @@ function formatPLSQL(src) {
           if (nextUp === 'IF' || nextUp === 'LOOP' || nextUp === 'CASE') {
             cur += ' ' + nextUp; i++;
           }
-          // END proc_name (before ;)
           const afterUp = UP(toks[i + 1]);
           if (toks[i+1]?.t === 'W' && toks[i+2]?.v === ';' &&
               !['IF','LOOP','CASE','END'].includes(afterUp)) {
@@ -249,58 +294,64 @@ function formatPLSQL(src) {
 
       // ── DML statements ──────────────────────────────────────────────────
       case 'SELECT': {
-        flush(); inSelectList = true;
-        cur = padKW('SELECT');
+        if (funcParenDepth > 0) { app('SELECT'); }
+        else { flush(); inSelectList = true; inFromList = false; cur = padKW('SELECT'); }
         break;
       }
-      case 'INSERT': { flush(); inSelectList = false; cur = 'INSERT'; break; }
-      case 'UPDATE': { flush(); inSelectList = false; cur = 'UPDATE'; break; }
-      case 'DELETE': { flush(); inSelectList = false; cur = 'DELETE'; break; }
-      case 'MERGE':  { flush(); inSelectList = false; cur = 'MERGE'; break; }
+      case 'INSERT': { flush(); inSelectList = false; inFromList = false; cur = 'INSERT'; break; }
+      case 'UPDATE': { flush(); inSelectList = false; inFromList = false; cur = 'UPDATE'; break; }
+      case 'DELETE': { flush(); inSelectList = false; inFromList = false; cur = 'DELETE'; break; }
+      case 'MERGE':  { flush(); inSelectList = false; inFromList = false; cur = 'MERGE'; break; }
 
-      // ── SQL clauses (tabular aligned) ────────────────────────────────────
+      // ── SQL clauses ──────────────────────────────────────────────────────
       case 'FROM': {
-        inSelectList = false;
+        if (funcParenDepth > 0) { app('FROM'); break; }
+        inSelectList = false; inFromList = true;
         if (cur.trim()) flush();
         cur = padKW('FROM');
         break;
       }
       case 'INTO': {
-        // SELECT ... INTO var (ends select list) vs INSERT INTO (stays inline)
+        if (funcParenDepth > 0) { app('INTO'); break; }
+        inFromList = false;
         if (inSelectList) {
           inSelectList = false; flush(); cur = padKW('INTO');
         } else if (cur.trim().startsWith('INSERT')) {
-          app('INTO'); // INSERT INTO → stays on INSERT line
+          app('INTO');
         } else {
           flush(); cur = padKW('INTO');
         }
         break;
       }
       case 'WHERE': {
+        if (funcParenDepth > 0) { app('WHERE'); break; }
+        inFromList = false;
         if (cur.trim()) flush();
         cur = padKW('WHERE');
         break;
       }
       case 'AND': {
-        if (parenDepth === 0 && caseDepth === 0) { flush(); cur = padKW('AND'); }
-        else app('AND');
+        if (funcParenDepth > 0 || caseDepth > 0) { app('AND'); break; }
+        flush(); cur = padKW('AND');
         break;
       }
       case 'OR': {
-        if (parenDepth === 0 && caseDepth === 0) { flush(); cur = padKW('OR'); }
-        else app('OR');
+        if (funcParenDepth > 0 || caseDepth > 0) { app('OR'); break; }
+        flush(); cur = padKW('OR');
         break;
       }
-      case 'SET':    { if (cur.trim()) flush(); cur = padKW('SET'); break; }
-      case 'VALUES': { if (cur.trim()) flush(); cur = padKW('VALUES'); break; }
-      case 'HAVING': { if (cur.trim()) flush(); cur = padKW('HAVING'); break; }
-      case 'UNION':  { flush(); cur = padKW('UNION'); break; }
+      case 'SET':    { if (funcParenDepth > 0) { app('SET'); break; } inFromList = false; if (cur.trim()) flush(); cur = padKW('SET'); break; }
+      case 'VALUES': { if (funcParenDepth > 0) { app('VALUES'); break; } if (cur.trim()) flush(); cur = padKW('VALUES'); break; }
+      case 'HAVING': { if (funcParenDepth > 0) { app('HAVING'); break; } if (cur.trim()) flush(); cur = padKW('HAVING'); break; }
+      case 'UNION':  { if (funcParenDepth > 0) { app('UNION'); break; } inFromList = false; flush(); cur = padKW('UNION'); break; }
       case 'GROUP': {
+        if (funcParenDepth > 0) { app('GROUP'); break; }
         if (nextUp === 'BY') { flush(); cur = 'GROUP BY '; i++; }
         else app('GROUP');
         break;
       }
       case 'ORDER': {
+        if (funcParenDepth > 0) { app('ORDER'); break; }
         if (nextUp === 'BY') { flush(); cur = 'ORDER BY '; i++; }
         else app('ORDER');
         break;
@@ -310,7 +361,8 @@ function formatPLSQL(src) {
       case 'INNER':
       case 'FULL':
       case 'CROSS': {
-        // Peek ahead to consume full JOIN type (e.g., LEFT OUTER JOIN)
+        if (funcParenDepth > 0) { app(up); break; }
+        inFromList = false;
         if (['JOIN','OUTER','INNER'].includes(nextUp)) {
           flush();
           let jt = up;
@@ -326,10 +378,19 @@ function formatPLSQL(src) {
         }
         break;
       }
-      case 'JOIN': { flush(); cur = padKW('JOIN'); break; }
-      case 'ON':   { flush(); cur = padKW('ON'); break; }
+      case 'JOIN': {
+        if (funcParenDepth > 0) { app('JOIN'); break; }
+        inFromList = false;
+        flush(); cur = padKW('JOIN');
+        break;
+      }
+      case 'ON': {
+        if (funcParenDepth > 0) { app('ON'); break; }
+        flush(); cur = padKW('ON');
+        break;
+      }
 
-      // ── CASE expression (inline, managed by caseDepth) ───────────────────
+      // ── CASE expression (inline) ─────────────────────────────────────────
       case 'CASE': {
         app('CASE');
         caseDepth++;
