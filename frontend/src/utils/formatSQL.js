@@ -1,18 +1,10 @@
-import { format } from 'sql-formatter';
-
 // Keyword field width for tabular alignment (SELECT=6+1, FROM=4+3, WHERE=5+2, AND=3+4 → all 7)
 const KWPAD = 7;
 const padKW = kw => kw.padEnd(KWPAD);
 
 export function formatSQL(sql) {
   if (!sql?.trim()) return sql;
-  const isPLSQL = /\b(BEGIN|DECLARE|PROCEDURE|FUNCTION|PACKAGE|TRIGGER)\b/i.test(sql);
-  if (isPLSQL) {
-    try { return formatPLSQL(sql); } catch { return sql; }
-  }
-  try {
-    return format(sql, { language: 'sql', tabWidth: 2, keywordCase: 'upper', linesBetweenQueries: 1 });
-  } catch { return sql; }
+  try { return formatPLSQL(sql); } catch { return sql; }
 }
 
 // ── Tokenizer ──────────────────────────────────────────────────────────────────
@@ -126,8 +118,20 @@ function formatPLSQL(src) {
 
     // ── Comments ──────────────────────────────────────────────────────────
     if (tok.t === 'CMT') {
-      flush();
-      lines.push(getIndent() + tok.v.trim());
+      if (!cur.trim()) {
+        // Standalone comment: own line
+        flush();
+        lines.push(getIndent() + curPrefix + tok.v.trim());
+      } else if (cur.trim().startsWith(',')) {
+        // Comma-first style: the comment was inline on the previous token's line.
+        // The comma already started a new logical line, so attach comment to the
+        // last flushed line rather than the upcoming comma line.
+        if (lines.length > 0) lines[lines.length - 1] += ' ' + tok.v.trim();
+      } else {
+        // Inline comment after some content: keep on same line
+        cur = cur.trimEnd() + ' ' + tok.v.trim();
+        flush();
+      }
       continue;
     }
 
