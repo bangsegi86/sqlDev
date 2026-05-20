@@ -71,7 +71,7 @@ function formatPLSQL(src) {
   const toks = tokenize(src).filter(t => t.t !== 'WS');
   const UP = tok => tok?.t === 'W' ? tok.v.toUpperCase() : null;
 
-  // Look ahead from pos to determine if ( contains a SELECT (subquery/inline view)
+  // Peek inside ( to decide if it's a subquery (contains SELECT before matching ))
   function isSubquery(pos) {
     let depth = 1;
     for (let j = pos + 1; j < toks.length; j++) {
@@ -86,22 +86,27 @@ function formatPLSQL(src) {
   let cur = '';
   let curPrefix = '';
   let level = 0;
+  // When inside a subquery, baseIndent overrides TAB.repeat(level) so content
+  // aligns right after the opening (
+  let baseIndent = '';
 
   let caseDepth = 0;
-  let funcParenDepth = 0;   // depth inside function-call parens (not subquery parens)
+  let funcParenDepth = 0;   // depth of function-call parens (not subquery parens)
   let inSelectList = false;
   let inFromList = false;
   let procHeaderSeen = false;
   let inDeclSection = false;
 
-  // Stack tracking paren types: 'func' | 'subquery'
-  const parenStack = [];
-  // Saved context per subquery level
-  const subqueryCtxStack = [];
+  const parenStack = [];      // 'func' | 'subquery' per open paren
+  const subqueryCtxStack = []; // saved state per open subquery paren
+
+  function getIndent() {
+    return baseIndent !== '' ? baseIndent : TAB.repeat(Math.max(0, level));
+  }
 
   function flush() {
     const s = cur.trim();
-    if (s) lines.push(TAB.repeat(Math.max(0, level)) + curPrefix + s);
+    if (s) lines.push(getIndent() + curPrefix + s);
     curPrefix = '';
     cur = '';
   }
@@ -122,7 +127,7 @@ function formatPLSQL(src) {
     // ── Comments ──────────────────────────────────────────────────────────
     if (tok.t === 'CMT') {
       flush();
-      lines.push(TAB.repeat(Math.max(0, level)) + tok.v.trim());
+      lines.push(getIndent() + tok.v.trim());
       continue;
     }
 
@@ -138,14 +143,23 @@ function formatPLSQL(src) {
         const sub = isSubquery(i);
         parenStack.push(sub ? 'subquery' : 'func');
         if (sub) {
-          // Save context, flush current line with ( at end, then indent for subquery body
-          subqueryCtxStack.push({ inSelectList, inFromList, caseDepth, funcParenDepth });
-          inSelectList = false; inFromList = false; caseDepth = 0;
+          // Ensure space before ( (it's not a function call)
+          if (cur && !cur.endsWith(' ') && !cur.endsWith('(')) cur += ' ';
+          // Compute column of ( using the CURRENT (outer) indent
+          const outerIndentLen = getIndent().length + curPrefix.length;
           cur += '(';
-          flush();
-          level++;
+          const parenCol = outerIndentLen + cur.trim().length - 1;
+          subqueryCtxStack.push({
+            inSelectList, inFromList, caseDepth, funcParenDepth,
+            savedBaseIndent: baseIndent,
+            savedLevel: level,
+            parenCol,
+          });
+          inSelectList = false; inFromList = false; caseDepth = 0;
+          flush();                              // output the (...( line with outer indent
+          baseIndent = ' '.repeat(parenCol + 1); // inner content aligns right after (
         } else {
-          // Function call: trim space before ( (e.g. DECODE() not DECODE ())
+          // Function call: trim trailing space before (
           const prevTok = toks[i - 1];
           if (prevTok?.t === 'W' || prevTok?.t === 'NUM') cur = cur.trimEnd();
           cur += '(';
@@ -155,14 +169,17 @@ function formatPLSQL(src) {
         const typ = parenStack.length > 0 ? parenStack.pop() : 'func';
         if (typ === 'subquery') {
           flush();
-          level = Math.max(0, level - 1);
           const ctx = subqueryCtxStack.pop();
-          if (ctx) {
-            inSelectList = ctx.inSelectList;
-            inFromList = ctx.inFromList;
-            caseDepth = ctx.caseDepth;
-            funcParenDepth = ctx.funcParenDepth;
-          }
+          baseIndent   = ctx?.savedBaseIndent ?? '';
+          level        = ctx?.savedLevel ?? level;
+          inSelectList = ctx?.inSelectList ?? false;
+          inFromList   = ctx?.inFromList ?? false;
+          caseDepth    = ctx?.caseDepth ?? 0;
+          funcParenDepth = ctx?.funcParenDepth ?? 0;
+          // Position ) at the same column as the opening (
+          const outerIndentLen = getIndent().length;
+          const extra = (ctx?.parenCol ?? 0) - outerIndentLen;
+          curPrefix = extra > 0 ? ' '.repeat(extra) : '';
           cur = ')';
         } else {
           cur = cur.trimEnd() + ')';
