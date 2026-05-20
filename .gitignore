@@ -7,5 +7,5 @@ backend/.env
 dist/
 backend/data/jdbc/
 backend/src/data/jdbc/
-backend/bridge/*.class
+
 backend/src/data/settings.json

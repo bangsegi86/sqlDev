@@ -62,7 +62,14 @@ function compile() {
 
 export async function downloadAndCompile() {
   if (!existsSync(OJDBC_PATH)) await downloadFile(OJDBC_URL, OJDBC_PATH);
-  if (!existsSync(BRIDGE_CLASS_FILE)) await compile();
+  // OracleBridge.class is bundled in the repo — compile only if somehow missing
+  if (!existsSync(BRIDGE_CLASS_FILE)) {
+    try {
+      await compile();
+    } catch (e) {
+      throw new Error(`OracleBridge.class가 없고 javac로 컴파일도 실패했습니다: ${e.message}\n저장소를 다시 clone 해주세요.`);
+    }
+  }
 }
 
 function spawnBridge() {
