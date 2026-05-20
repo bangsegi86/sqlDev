@@ -46,6 +46,7 @@ export default function DataTab({ connectionId, schema, tableName }) {
           onSort={handleSort}
           sortColumn={sortCol}
           sortDir={sortDir}
+          rowOffset={(page - 1) * limit}
         />
       )}
 
