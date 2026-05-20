@@ -15,9 +15,10 @@ export default function ObjectExplorer() {
   const [objects, setObjects] = useState({});
   const [loading, setLoading] = useState({});
   const [schemaError, setSchemaError] = useState(null);
+  const [schemaFilter, setSchemaFilter] = useState('');
 
   useEffect(() => {
-    if (!activeConnectionId || !isConnected) { setSchemas([]); setSchemaError(null); return; }
+    if (!activeConnectionId || !isConnected) { setSchemas([]); setSchemaError(null); setSchemaFilter(''); return; }
     setLoading(l => ({ ...l, schemas: true }));
     setSchemaError(null);
     api.getSchemas(activeConnectionId)
@@ -71,10 +72,40 @@ export default function ObjectExplorer() {
     });
   }
 
+  const filteredSchemas = schemaFilter.trim()
+    ? schemas.filter(s => s.toLowerCase().includes(schemaFilter.toLowerCase()))
+    : schemas;
+
   return (
     <div>
       <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)' }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
+      </div>
+      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 3, padding: '2px 6px', gap: 4 }}>
+          <span style={{ color: 'var(--text-dim)', fontSize: 11, flexShrink: 0 }}>🔍</span>
+          <input
+            type="text"
+            placeholder="스키마 필터..."
+            value={schemaFilter}
+            onChange={e => setSchemaFilter(e.target.value)}
+            style={{
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              color: 'var(--text-primary)', fontSize: 12, minWidth: 0,
+            }}
+          />
+          {schemaFilter && (
+            <button
+              onClick={() => setSchemaFilter('')}
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: 0, fontSize: 12, lineHeight: 1 }}
+            >✕</button>
+          )}
+        </div>
+        {schemaFilter && (
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3, paddingLeft: 2 }}>
+            {filteredSchemas.length} / {schemas.length}
+          </div>
+        )}
       </div>
       <div style={{ overflowY: 'auto' }}>
         {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
@@ -83,7 +114,10 @@ export default function ObjectExplorer() {
             ⚠ {schemaError}
           </div>
         )}
-        {schemas.map(schema => {
+        {!loading.schemas && schemaFilter && filteredSchemas.length === 0 && (
+          <div style={{ padding: '8px 10px', color: 'var(--text-dim)', fontSize: 12 }}>결과 없음</div>
+        )}
+        {filteredSchemas.map(schema => {
           const schemaNodeId = `${activeConnectionId}-${schema}`;
           const schemaExpanded = expandedNodes.has(schemaNodeId);
           return (
