@@ -251,7 +251,7 @@ export function renderHighlighted(src) {
   const tokens = highlightTokens(src);
   return tokens.map((tok, i) =>
     tok.color
-      ? <span key={i} style={{ color: tok.color }}>{tok.value}</span>
+      ? React.createElement('span', { key: i, style: { color: tok.color } }, tok.value)
       : tok.value
   );
 }
