@@ -5,3 +5,5 @@ backend/data/connections.json
 .env
 backend/.env
 dist/
+backend/data/jdbc/
+backend/bridge/*.class

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getSettings, updateSettings, autoDetectOracleClient } from '../services/settingsService.js';
 import { existsSync } from 'fs';
+import { getJdbcStatus, downloadAndCompile } from '../services/jdbcService.js';
 
 const router = Router();
 
@@ -13,7 +14,21 @@ router.get('/', (req, res) => {
     autoDetected: autoDetectOracleClient(),
     currentMode: clientDir ? 'thick' : 'thin',
     currentClientDir: clientDir,
+    jdbc: getJdbcStatus(),
   });
+});
+
+router.get('/jdbc-status', (req, res) => {
+  res.json(getJdbcStatus());
+});
+
+router.post('/download-jdbc', async (req, res) => {
+  try {
+    await downloadAndCompile();
+    res.json({ ok: true, ...getJdbcStatus() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.put('/', (req, res) => {

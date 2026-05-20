@@ -41,4 +41,6 @@ export const api = {
 
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
+  getJdbcStatus: () => request('/settings/jdbc-status'),
+  downloadJdbc: () => request('/settings/download-jdbc', { method: 'POST' }),
 };

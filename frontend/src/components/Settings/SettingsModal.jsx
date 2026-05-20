@@ -8,13 +8,29 @@ export default function SettingsModal({ onClose }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [jdbcStatus, setJdbcStatus] = useState(null);
+  const [jdbcDownloading, setJdbcDownloading] = useState(false);
+  const [jdbcError, setJdbcError] = useState('');
 
   useEffect(() => {
     api.getSettings().then(s => {
       setSettings(s);
       setClientDir(s.oracleClientDir || '');
     }).catch(() => {});
+    api.getJdbcStatus().then(setJdbcStatus).catch(() => {});
   }, []);
+
+  async function handleDownloadJdbc() {
+    setJdbcDownloading(true); setJdbcError('');
+    try {
+      const result = await api.downloadJdbc();
+      setJdbcStatus(result);
+    } catch (e) {
+      setJdbcError(e.message);
+    } finally {
+      setJdbcDownloading(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true); setError(''); setSaved(false);
@@ -97,6 +113,46 @@ export default function SettingsModal({ onClose }) {
             ✓ 저장되었습니다. 서버가 재시작됩니다 (개발 모드에서 자동). 이후 재연결 테스트를 해보세요.
           </div>
         )}
+
+        {/* JDBC Section */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            JDBC 드라이버 (구형 Oracle 10g 인증 지원)
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--bg-primary)', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>상태:</span>
+            <span style={{
+              padding: '2px 10px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+              background: jdbcStatus?.available ? 'rgba(46,204,113,0.2)' : 'rgba(255,165,0,0.15)',
+              color: jdbcStatus?.available ? '#2ecc71' : '#f39c12',
+              border: `1px solid ${jdbcStatus?.available ? '#2ecc71' : '#f39c12'}`,
+            }}>
+              {jdbcStatus?.available ? '✓ 준비됨 (ojdbc11.jar)' : jdbcStatus?.driverDownloaded ? '⚠ 컴파일 필요' : '⚠ 미설치'}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 10 }}>
+            NJS-116 오류 발생 시 자동으로 JDBC로 전환합니다. DBeaver와 동일한 Oracle JDBC 드라이버(ojdbc11)를 사용합니다.<br/>
+            <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>다운로드 경로: Maven Central (repo1.maven.org) · 약 7MB</span>
+          </div>
+
+          {jdbcError && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{jdbcError}</div>}
+
+          <button
+            className={jdbcStatus?.available ? 'btn-secondary' : 'btn-primary'}
+            onClick={handleDownloadJdbc}
+            disabled={jdbcDownloading}
+            style={{ padding: '5px 14px', fontSize: 12 }}
+          >
+            {jdbcDownloading ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />
+                다운로드 중... (약 7MB)
+              </span>
+            ) : jdbcStatus?.available ? '↻ 재다운로드' : '⬇ JDBC 드라이버 자동 다운로드'}
+          </button>
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn-secondary" onClick={onClose}>닫기</button>
