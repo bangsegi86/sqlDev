@@ -66,8 +66,9 @@ export async function connect(connInfo) {
     if (existing.type === 'jdbc') return { status: 'connected', mode: 'jdbc' };
     if (existing.pool?.status === oracledb.POOL_STATUS_OPEN) return { status: 'connected', mode: 'thin' };
   }
+  let pool;
   try {
-    const pool = await oracledb.createPool({
+    pool = await oracledb.createPool({
       user: connInfo.username,
       password: connInfo.password,
       connectString: connectString(connInfo.host, connInfo.port, connInfo.serviceName),
@@ -75,9 +76,14 @@ export async function connect(connInfo) {
       poolMax: 5,
       poolIncrement: 1,
     });
+    // createPool() does NOT establish a real connection — getConnection() does.
+    // We must probe here so NJS-116 is caught before we declare success.
+    const probe = await pool.getConnection();
+    await probe.close();
     pools.set(connInfo.id, { type: 'oracledb', pool, connectedAt: new Date().toISOString() });
     return { status: 'connected', mode: 'thin' };
   } catch (e) {
+    if (pool) { try { await pool.close(0); } catch {} }
     if ((e.message.includes('NJS-116') || e.message.includes('password verifier')) && getJdbcStatus().available) {
       await jdbcConnect(connInfo);
       pools.set(connInfo.id, { type: 'jdbc', pool: null, connectedAt: new Date().toISOString() });
