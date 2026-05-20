@@ -22,7 +22,7 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
         <thead>
           <tr>
-            {['#', 'Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key'].map(h => (
+            {['#', 'Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key', 'Comment'].map(h => (
               <th key={h} style={thStyle}>{h}</th>
             ))}
           </tr>
@@ -46,6 +46,10 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
               </td>
               <td style={tdStyle({ textAlign: 'center' })}>
                 {col.IS_PK && <span className="tag-pk" title="Primary Key">PK</span>}
+              </td>
+              <td style={tdStyle({ color: 'var(--text-secondary)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}
+                  title={col.COMMENTS || ''}>
+                {col.COMMENTS || <span className="null-val" />}
               </td>
             </tr>
           ))}

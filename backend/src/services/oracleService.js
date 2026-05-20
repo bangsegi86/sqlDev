@@ -166,11 +166,13 @@ export async function getObjects(id, schema, type) {
 export async function getColumns(id, schema, tableName) {
   const [colResult, pkResult] = await Promise.all([
     execute(id,
-      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE,
-              NULLABLE, DATA_DEFAULT, COLUMN_ID
-       FROM ALL_TAB_COLUMNS
-       WHERE OWNER = :schema AND TABLE_NAME = :table
-       ORDER BY COLUMN_ID`,
+      `SELECT c.COLUMN_NAME, c.DATA_TYPE, c.DATA_LENGTH, c.DATA_PRECISION, c.DATA_SCALE,
+              c.NULLABLE, c.DATA_DEFAULT, c.COLUMN_ID, cc.COMMENTS
+       FROM ALL_TAB_COLUMNS c
+       LEFT JOIN ALL_COL_COMMENTS cc
+         ON c.OWNER = cc.OWNER AND c.TABLE_NAME = cc.TABLE_NAME AND c.COLUMN_NAME = cc.COLUMN_NAME
+       WHERE c.OWNER = :schema AND c.TABLE_NAME = :table
+       ORDER BY c.COLUMN_ID`,
       { schema, table: tableName }
     ),
     execute(id,
@@ -184,11 +186,12 @@ export async function getColumns(id, schema, tableName) {
   return colResult.rows.map(col => ({ ...col, IS_PK: pkSet.has(col.COLUMN_NAME) }));
 }
 
-export async function getTableData(id, schema, tableName, { page = 1, limit = 100, orderBy, orderDir = 'ASC' } = {}) {
+export async function getTableData(id, schema, tableName, { page = 1, limit = 100, orderBy, orderDir = 'ASC', filter } = {}) {
   const offset = (Number(page) - 1) * Number(limit);
   const orderClause = orderBy ? `ORDER BY "${orderBy}" ${orderDir === 'DESC' ? 'DESC' : 'ASC'}` : 'ORDER BY 1';
-  const dataSql = `SELECT * FROM "${schema}"."${tableName}" ${orderClause} OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`;
-  const countSql = `SELECT COUNT(*) AS CNT FROM "${schema}"."${tableName}"`;
+  const whereClause = filter ? `WHERE ${filter}` : '';
+  const dataSql = `SELECT * FROM "${schema}"."${tableName}" ${whereClause} ${orderClause} OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`;
+  const countSql = `SELECT COUNT(*) AS CNT FROM "${schema}"."${tableName}" ${whereClause}`;
 
   const [dataResult, countResult] = await Promise.all([
     execute(id, dataSql, { offset, limit: Number(limit) }),
