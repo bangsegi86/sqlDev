@@ -98,13 +98,13 @@ export default function ObjectExplorer() {
   const isObjFiltering = !!objFilterLower;
 
   return (
-    <div>
-      <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
       </div>
 
       {/* Schema filter */}
-      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)' }}>
+      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput
           placeholder="스키마 필터..."
           value={schemaFilter}
@@ -118,7 +118,7 @@ export default function ObjectExplorer() {
       </div>
 
       {/* Object filter */}
-      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)' }}>
+      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput
           placeholder="오브젝트 필터..."
           value={objectFilter}
@@ -131,7 +131,7 @@ export default function ObjectExplorer() {
         )}
       </div>
 
-      <div style={{ overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
         {schemaError && (
           <div style={{ padding: '8px 10px', color: 'var(--danger)', fontSize: 11, wordBreak: 'break-word' }}>
