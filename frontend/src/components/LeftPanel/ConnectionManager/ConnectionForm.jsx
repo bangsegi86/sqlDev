@@ -27,7 +27,7 @@ export default function ConnectionForm({ onClose, editing = null }) {
       const res = await api.testConnection({ ...form, port: Number(form.port) });
       setTestResult({ success: true, msg: `연결 성공! (${res.latencyMs}ms) — ${res.serverVersion}` });
     } catch (e) {
-      setTestResult({ success: false, msg: e.message });
+      setTestResult({ success: false, msg: friendlyError(e.message, form.username) });
     } finally { setTesting(false); }
   }
 
@@ -84,7 +84,7 @@ export default function ConnectionForm({ onClose, editing = null }) {
         </div>
 
         {testResult && (
-          <div style={{ padding: '6px 10px', borderRadius: 3, fontSize: 12, background: testResult.success ? 'rgba(76,175,80,0.15)' : 'rgba(244,71,71,0.15)', color: testResult.success ? 'var(--success)' : 'var(--danger)', border: `1px solid ${testResult.success ? 'var(--success-dim)' : 'var(--danger)'}` }}>
+          <div style={{ padding: '8px 10px', borderRadius: 3, fontSize: 12, background: testResult.success ? 'rgba(76,175,80,0.15)' : 'rgba(244,71,71,0.15)', color: testResult.success ? 'var(--success)' : 'var(--danger)', border: `1px solid ${testResult.success ? 'var(--success-dim)' : 'var(--danger)'}`, whiteSpace: 'pre-line', lineHeight: 1.6 }}>
             {testResult.msg}
           </div>
         )}
@@ -103,6 +103,25 @@ export default function ConnectionForm({ onClose, editing = null }) {
 }
 
 const LABELS = { name: '연결 이름', host: 'Host (IP)', serviceName: '서비스명', username: '사용자명' };
+
+function friendlyError(msg, username = '') {
+  if (msg.includes('NJS-116') || msg.includes('password verifier')) {
+    return `[인증 방식 비호환] Oracle DB가 구형 10g 비밀번호 방식을 사용 중입니다.\noracledb Thin Mode와 호환되지 않습니다.\n\nDBA에게 아래 SQL 실행을 요청하세요 (비밀번호 동일 유지):\n\nALTER USER ${username || '<username>'} IDENTIFIED BY <현재비밀번호>;`;
+  }
+  if (msg.includes('ORA-12541') || msg.includes('TNS:no listener')) {
+    return `[연결 실패] Oracle 리스너에 연결할 수 없습니다.\nHost IP / Port 번호를 확인하거나 방화벽 설정을 확인하세요.`;
+  }
+  if (msg.includes('ORA-12514')) {
+    return `[서비스명 오류] 서비스명이 잘못되었습니다.\n서버에서 서비스명을 확인 후 다시 입력하세요.`;
+  }
+  if (msg.includes('ORA-01017') || msg.includes('invalid username/password')) {
+    return `[인증 실패] 사용자명 또는 비밀번호가 올바르지 않습니다.`;
+  }
+  if (msg.includes('ORA-28000') || msg.includes('account is locked')) {
+    return `[계정 잠김] DB 계정이 잠겨 있습니다. DBA에게 계정 잠금 해제를 요청하세요.\n\nALTER USER <username> ACCOUNT UNLOCK;`;
+  }
+  return msg;
+}
 
 function Field({ label, value, onChange, type = 'text' }) {
   return (
