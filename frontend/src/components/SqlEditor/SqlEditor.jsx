@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
+import { formatSQL } from '../../utils/formatSQL.js';
 
 export default function SqlEditor({ tab }) {
   const { state, dispatch } = useApp();
@@ -64,6 +65,13 @@ export default function SqlEditor({ tab }) {
           {loading ? <span className="spinner" /> : '▶ 실행'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>F5</span>
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <button
+          className="btn-secondary"
+          onClick={() => setSql(prev => formatSQL(prev))}
+          style={{ padding: '3px 10px' }}
+          title="SQL 코드 줄 맞추기 (들여쓰기 정렬)"
+        >≡ 줄 맞추기</button>
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
             {state.connections.find(c => c.id === connId)?.name}
