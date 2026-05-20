@@ -122,13 +122,14 @@ function formatPLSQL(src) {
         // Standalone comment: own line
         flush();
         lines.push(getIndent() + curPrefix + tok.v.trim());
-      } else if (cur.trim().startsWith(',')) {
-        // Comma-first style: the comment was inline on the previous token's line.
-        // The comma already started a new logical line, so attach comment to the
-        // last flushed line rather than the upcoming comma line.
+      } else if (cur.trim() === ',') {
+        // cur holds ONLY the leading comma — no identifier accumulated yet.
+        // In comma-first style this means the comment was written right after a
+        // comma on a new line, which is unusual; attach to the previously flushed line.
         if (lines.length > 0) lines[lines.length - 1] += ' ' + tok.v.trim();
       } else {
-        // Inline comment after some content: keep on same line
+        // Inline comment after real content (e.g. ", T1. ITM_CD --note"):
+        // keep on the same line as the accumulated content
         cur = cur.trimEnd() + ' ' + tok.v.trim();
         flush();
       }
