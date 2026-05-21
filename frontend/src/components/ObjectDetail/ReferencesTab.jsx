@@ -30,7 +30,7 @@ export default function ReferencesTab({ connectionId, schema, tableName }) {
 
   function goToTable(rSchema, rTable) {
     openTab(dispatch, state, {
-      id: `TABLE-${rSchema}-${rTable}`, type: 'table', title: rTable,
+      id: `TABLE-${connectionId}-${rSchema}-${rTable}`, type: 'table', title: rTable,
       connectionId, content: { schema: rSchema, objectType: 'TABLE', name: rTable, activeTab: 'columns' },
     });
   }

@@ -87,7 +87,7 @@ export default function SqlEditor({ tab }) {
   function navigateToTable(schemaName, tableName) {
     const s = schemaName || schema;
     if (!s || !tableName) return;
-    const id = `table:${connId}:${s}:${tableName}`;
+    const id = `TABLE-${connId}-${s}-${tableName}`;
     openTab(dispatch, state, {
       id, type: 'table', title: tableName,
       connectionId: connId,

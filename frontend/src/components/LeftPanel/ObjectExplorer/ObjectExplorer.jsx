@@ -17,6 +17,10 @@ export default function ObjectExplorer() {
   const [schemaError, setSchemaError] = useState(null);
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
+  const [filterCollapsed, setFilterCollapsed] = useState(new Set());
+
+  // Reset per-type collapsed state whenever the filter text changes
+  useEffect(() => { setFilterCollapsed(new Set()); }, [objectFilter]);
 
   useEffect(() => {
     if (!activeConnectionId || !isConnected) {
@@ -73,8 +77,18 @@ export default function ObjectExplorer() {
 
   function handleTypeClick(schema, type) {
     const nodeId = `${activeConnectionId}-${schema}-${type}`;
-    if (!expandedNodes.has(nodeId)) loadObjects(schema, type);
-    toggleNode(nodeId);
+    if (isObjFiltering) {
+      // During filter: use local collapsed state so expand/collapse works independently
+      setFilterCollapsed(prev => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) next.delete(nodeId);
+        else next.add(nodeId);
+        return next;
+      });
+    } else {
+      if (!expandedNodes.has(nodeId)) loadObjects(schema, type);
+      toggleNode(nodeId);
+    }
   }
 
   function handleObjectClick(schema, type, name) {
@@ -82,7 +96,7 @@ export default function ObjectExplorer() {
       : type === 'SEQUENCE' ? 'sequence'
       : type === 'SYNONYM' ? 'synonym' : 'source';
     openTab(dispatch, state, {
-      id: `${type}-${schema}-${name}`,
+      id: `${type}-${activeConnectionId}-${schema}-${name}`,
       type: tabType,
       title: name,
       connectionId: activeConnectionId,
@@ -164,8 +178,8 @@ export default function ObjectExplorer() {
                 // When object filter is active, hide types with no matches (unless still loading)
                 if (isObjFiltering && !isLoading && filteredObjList && filteredObjList.length === 0) return null;
 
-                // When object filter is active, show objects directly (auto-expanded)
-                const showObjects = isObjFiltering ? true : typeExpanded;
+                // Filter mode: default expanded, but respect manual collapse via filterCollapsed
+                const showObjects = isObjFiltering ? !filterCollapsed.has(typeNodeId) : typeExpanded;
                 const displayList = isObjFiltering ? filteredObjList : objList;
 
                 return (

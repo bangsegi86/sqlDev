@@ -46,7 +46,7 @@ export default function SourceDetail({ tab }) {
   function navigateToTable(tableName, schemaName) {
     const s = schemaName || schema;
     if (!s || !tableName) return;
-    const id = `table:${tab.connectionId}:${s}:${tableName}`;
+    const id = `TABLE-${tab.connectionId}-${s}-${tableName}`;
     openTab(dispatch, state, {
       id, type: 'table', title: tableName,
       connectionId: tab.connectionId,
