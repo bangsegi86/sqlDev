@@ -198,7 +198,7 @@ export default function SqlEditor({ tab }) {
     document.addEventListener('mouseup', onUp);
   }
 
-  const hasResult = resultCols.length > 0 || execMsg;
+  const hasResult = resultCols.length > 0 || execMsg || loading;
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -294,37 +294,38 @@ export default function SqlEditor({ tab }) {
         {hasResult && (
           <>
             {/* Result info bar */}
-            <div style={{ padding: '3px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
-              {execMsg ? (
-                <span>{execMsg}</span>
-              ) : (
-                <>
-                  <span>
-                    <b style={{ color: 'var(--text-primary)' }}>{allRows.length.toLocaleString()}</b>
-                    {total != null && total !== allRows.length && (
-                      <span style={{ color: 'var(--text-dim)' }}> / {total.toLocaleString()}행 로드됨</span>
-                    )}
-                    {total != null && total === allRows.length && (
-                      <span style={{ color: 'var(--text-dim)' }}>행</span>
-                    )}
-                  </span>
-                  {execTime != null && <span>{execTime}ms</span>}
-                  {hasMore && (
-                    <span style={{ color: 'var(--accent)', fontSize: 10 }}>
-                      ↓ 스크롤하거나 버튼으로 추가 로드
+            {!loading && (
+              <div style={{ padding: '3px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
+                {execMsg ? (
+                  <span>{execMsg}</span>
+                ) : (
+                  <>
+                    <span>
+                      <b style={{ color: 'var(--text-primary)' }}>{allRows.length.toLocaleString()}</b>
+                      {total != null && total !== allRows.length
+                        ? <span style={{ color: 'var(--text-dim)' }}> / {total.toLocaleString()}행 로드됨</span>
+                        : <span style={{ color: 'var(--text-dim)' }}>행</span>
+                      }
                     </span>
-                  )}
-                </>
-              )}
-            </div>
+                    {execTime != null && <span>{execTime}ms</span>}
+                    {hasMore && (
+                      <span style={{ color: 'var(--accent)', fontSize: 10 }}>
+                        ↓ 스크롤하거나 버튼으로 추가 로드
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
-            {resultCols.length > 0 && (
+            {(resultCols.length > 0 || loading) && (
               <DataGrid
                 columns={resultCols}
                 rows={allRows}
                 onLoadMore={loadMore}
                 hasMore={hasMore}
                 loadingMore={loadingMore}
+                loading={loading || loadingMore}
               />
             )}
           </>
