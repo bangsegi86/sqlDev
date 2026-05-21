@@ -256,6 +256,58 @@ export function renderHighlighted(src) {
   );
 }
 
+// Returns { schema: string|null, table: string } for the table token under charPos,
+// or null if the cursor is not on a table-colored token.
+export function getTableAtCursor(src, charPos) {
+  if (!src) return null;
+  const raw = rawTokenize(src);
+  const colored = highlightTokens(src);
+
+  // Find which raw token contains charPos
+  let pos = 0;
+  let idx = -1;
+  for (let i = 0; i < raw.length; i++) {
+    const end = pos + raw[i].v.length;
+    if (pos <= charPos && charPos < end) { idx = i; break; }
+    pos = end;
+  }
+  if (idx === -1) return null;
+  if (colored[idx].color !== SQL_COLORS.table) return null;
+
+  // Skip whitespace helpers
+  const nextNW = (from) => {
+    let k = from + 1;
+    while (k < raw.length && raw[k].k === 'ws') k++;
+    return k < raw.length ? k : -1;
+  };
+  const prevNW = (from) => {
+    let k = from - 1;
+    while (k >= 0 && raw[k].k === 'ws') k--;
+    return k >= 0 ? k : -1;
+  };
+
+  const ni = nextNW(idx);
+  // If next non-ws is '.', this token is a schema prefix — return schema+table
+  if (ni !== -1 && raw[ni].k === 'p' && raw[ni].v === '.') {
+    const ti = nextNW(ni);
+    if (ti !== -1 && colored[ti] && colored[ti].color === SQL_COLORS.table) {
+      return { schema: raw[idx].v.toUpperCase(), table: raw[ti].v.toUpperCase() };
+    }
+    return { schema: null, table: raw[idx].v.toUpperCase() };
+  }
+
+  // If prev non-ws is '.', this token is a qualified table name
+  const pi = prevNW(idx);
+  if (pi !== -1 && raw[pi].k === 'p' && raw[pi].v === '.') {
+    const si = prevNW(pi);
+    if (si !== -1 && colored[si] && colored[si].color === SQL_COLORS.table) {
+      return { schema: raw[si].v.toUpperCase(), table: raw[idx].v.toUpperCase() };
+    }
+  }
+
+  return { schema: null, table: raw[idx].v.toUpperCase() };
+}
+
 // Splits highlighted tokens into per-line arrays (for line-numbered source view)
 export function splitHighlightedLines(tokens) {
   const lines = [[]];

@@ -146,3 +146,11 @@ textarea {
   color: var(--text-primary);
   border-bottom-color: var(--accent-bright);
 }
+
+.sql-table-token {
+  cursor: pointer;
+}
+.sql-table-token:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

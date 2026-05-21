@@ -3,7 +3,8 @@ import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
-import { renderHighlighted } from '../../utils/sqlHighlight.js';
+import { renderHighlighted, getTableAtCursor } from '../../utils/sqlHighlight.js';
+import { openTab } from '../../store/AppContext.jsx';
 
 export default function SqlEditor({ tab }) {
   const { state, dispatch } = useApp();
@@ -41,7 +42,18 @@ export default function SqlEditor({ tab }) {
     }
   }
 
-  function handleTabKey(e) {
+  function navigateToTable(schemaName, tableName) {
+    const s = schemaName || schema;
+    if (!s || !tableName) return;
+    const id = `table:${connId}:${s}:${tableName}`;
+    openTab(dispatch, state, {
+      id, type: 'table', title: tableName,
+      connectionId: connId,
+      content: { schema: s, objectType: 'TABLE', name: tableName },
+    });
+  }
+
+  function handleKeyDown(e) {
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = e.target.selectionStart;
@@ -53,6 +65,12 @@ export default function SqlEditor({ tab }) {
           textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
         }
       });
+    }
+    if (e.key === 'F4') {
+      e.preventDefault();
+      const pos = textareaRef.current?.selectionStart ?? 0;
+      const result = getTableAtCursor(sql, pos);
+      if (result) navigateToTable(result.schema, result.table);
     }
   }
 
@@ -140,9 +158,16 @@ export default function SqlEditor({ tab }) {
           value={sql}
           onChange={e => setSql(e.target.value)}
           onScroll={syncScroll}
-          onKeyDown={e => { handleTabKey(e); syncScroll(); }}
+          onKeyDown={e => { handleKeyDown(e); syncScroll(); }}
           onKeyUp={syncScroll}
-          onClick={syncScroll}
+          onClick={e => {
+            syncScroll();
+            if (e.ctrlKey) {
+              const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
+              const result = getTableAtCursor(sql, pos);
+              if (result) navigateToTable(result.schema, result.table);
+            }
+          }}
           style={{
             position: 'absolute', inset: 0,
             resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
