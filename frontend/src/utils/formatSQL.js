@@ -59,7 +59,7 @@ function tokenize(src) {
 // ── PL/SQL Formatter ───────────────────────────────────────────────────────────
 
 function formatPLSQL(src) {
-  const TAB = '  ';
+  const TAB = '    ';  // 4-space indent
   const toks = tokenize(src).filter(t => t.t !== 'WS');
   const UP = tok => tok?.t === 'W' ? tok.v.toUpperCase() : null;
 
@@ -101,6 +101,12 @@ function formatPLSQL(src) {
     if (s) lines.push(getIndent() + curPrefix + s);
     curPrefix = '';
     cur = '';
+  }
+
+  // Remove a trailing blank line (added after ';') before structural keywords
+  // so there's no extra blank before END / ELSE / ELSIF / EXCEPTION
+  function dropTrailingBlank() {
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
   }
 
   function app(s) {
@@ -196,6 +202,11 @@ function formatPLSQL(src) {
         cur = cur.trimEnd() + ';';
         flush();
         inSelectList = false; inFromList = false; caseDepth = 0;
+        // Insert blank line between statements inside a block body.
+        // Skip: pure SQL (level=0), declare section (variable declarations), already blank.
+        if (level > 0 && !inDeclSection && lines.length > 0 && lines[lines.length - 1] !== '') {
+          lines.push('');
+        }
       } else if (p === ',') {
         if (funcParenDepth > 0 || caseDepth > 0) {
           // Inside function call or CASE expression: inline comma
@@ -276,6 +287,7 @@ function formatPLSQL(src) {
           caseDepth--;
           if (nextUp === 'CASE') { app('CASE'); i++; }
         } else {
+          dropTrailingBlank();
           flush();
           level = Math.max(0, level - 1);
           cur = 'END';
@@ -292,6 +304,7 @@ function formatPLSQL(src) {
       }
 
       case 'EXCEPTION': {
+        dropTrailingBlank();
         flush(); level = Math.max(0, level - 1);
         cur = 'EXCEPTION'; flush(); level++;
         break;
@@ -299,8 +312,9 @@ function formatPLSQL(src) {
 
       // ── Control flow ────────────────────────────────────────────────────
       case 'IF':    { flush(); cur = 'IF'; break; }
-      case 'ELSIF': { flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; break; }
+      case 'ELSIF': { dropTrailingBlank(); flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; break; }
       case 'ELSE':  {
+        dropTrailingBlank();
         flush(); level = Math.max(0, level - 1);
         cur = 'ELSE'; flush(); level++;
         break;
