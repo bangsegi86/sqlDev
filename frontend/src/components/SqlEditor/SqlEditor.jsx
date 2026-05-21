@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
 import PlanViewer from './PlanViewer.jsx';
+import AutocompleteDropdown from './AutocompleteDropdown.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { renderHighlighted, getTableAtCursor } from '../../utils/sqlHighlight.js';
 import { openTab } from '../../store/AppContext.jsx';
 
 const LIMIT = 500;
+// Object types to include in autocomplete
+const AC_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'SEQUENCE'];
 
 // Splits sql by ';' that are not inside string literals.
 function splitStatements(sql) {
@@ -44,6 +47,53 @@ function getStatementAtCursor(sql, cursorPos) {
   return sql.trim().replace(/;+\s*$/, '');
 }
 
+// Extract the word being typed at cursor position (alphanumeric + _ + $)
+function getWordAtCursor(text, pos) {
+  let start = pos;
+  while (start > 0 && /[\w$]/.test(text[start - 1])) start--;
+  const word = text.slice(start, pos);
+  return { word, wordStart: start };
+}
+
+// Compute pixel position of cursor inside textarea for dropdown anchor
+function getCaretPixelPos(textarea) {
+  const rect = textarea.getBoundingClientRect();
+  // Use a mirror div to compute caret position
+  const mirror = document.createElement('div');
+  const style = window.getComputedStyle(textarea);
+  for (const prop of ['fontFamily','fontSize','fontWeight','lineHeight','letterSpacing',
+    'paddingTop','paddingLeft','paddingRight','paddingBottom','borderTopWidth',
+    'borderLeftWidth','width','boxSizing','whiteSpace','wordBreak','overflowWrap']) {
+    mirror.style[prop] = style[prop];
+  }
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.style.overflow = 'hidden';
+  mirror.style.height = 'auto';
+  mirror.style.whiteSpace = 'pre';
+
+  const pos = textarea.selectionStart;
+  const before = textarea.value.slice(0, pos);
+  mirror.textContent = before;
+  const span = document.createElement('span');
+  span.textContent = textarea.value[pos] || '.';
+  mirror.appendChild(span);
+  document.body.appendChild(mirror);
+
+  const spanRect = span.getBoundingClientRect();
+  document.body.removeChild(mirror);
+
+  // Account for textarea scroll
+  const caretLeft = rect.left + span.offsetLeft - textarea.scrollLeft;
+  const caretBottom = rect.top + span.offsetTop + span.offsetHeight - textarea.scrollTop;
+  const caretTop = rect.top + span.offsetTop - textarea.scrollTop;
+  return {
+    left: Math.min(Math.max(caretLeft, rect.left), rect.right - 4),
+    top: caretTop,
+    bottom: caretBottom,
+  };
+}
+
 export default function SqlEditor({ tab }) {
   const { state, dispatch } = useApp();
   const [sql, setSql] = useState(tab.content?.sql || '');
@@ -69,6 +119,13 @@ export default function SqlEditor({ tab }) {
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
 
+  // Autocomplete state
+  const [acOpen, setAcOpen] = useState(false);
+  const [acItems, setAcItems] = useState([]);       // full object list (cached)
+  const [acFilter, setAcFilter] = useState('');     // current typed prefix
+  const [acAnchor, setAcAnchor] = useState(null);   // { top, left, bottom }
+  const acSchemaRef = useRef(null);                  // schema for which acItems was loaded
+
   const isDragging = useRef(false);
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
@@ -90,6 +147,41 @@ export default function SqlEditor({ tab }) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sql, connId, schema]);
 
+  // Close autocomplete when clicking outside
+  useEffect(() => {
+    if (!acOpen) return;
+    function onMouseDown(e) {
+      if (!textareaRef.current?.contains(e.target)) setAcOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [acOpen]);
+
+  // Load object list for current schema (cached per schema)
+  const loadAcItems = useCallback(async () => {
+    if (!connId || !schema) return [];
+    if (acSchemaRef.current === `${connId}:${schema}` && acItems.length > 0) return acItems;
+    try {
+      const results = await Promise.all(
+        AC_TYPES.map(type =>
+          api.getObjects(connId, schema, type)
+            .then(names => names.map(name => ({ name, type })))
+            .catch(() => [])
+        )
+      );
+      const flat = results.flat().sort((a, b) => a.name.localeCompare(b.name));
+      acSchemaRef.current = `${connId}:${schema}`;
+      setAcItems(flat);
+      return flat;
+    } catch { return []; }
+  }, [connId, schema]);
+
+  // Invalidate cache when schema changes
+  useEffect(() => {
+    acSchemaRef.current = null;
+    setAcItems([]);
+  }, [connId, schema]);
+
   const highlightedSql = useMemo(() => renderHighlighted(sql), [sql]);
 
   function syncScroll() {
@@ -97,6 +189,39 @@ export default function SqlEditor({ tab }) {
       preRef.current.scrollTop = textareaRef.current.scrollTop;
       preRef.current.scrollLeft = textareaRef.current.scrollLeft;
     }
+  }
+
+  function openAutocomplete() {
+    if (!connId || !schema) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const { word } = getWordAtCursor(ta.value, pos);
+    const anchor = getCaretPixelPos(ta);
+    setAcFilter(word);
+    setAcAnchor(anchor);
+    setAcOpen(true);
+    // Load items (uses cache if available)
+    loadAcItems();
+  }
+
+  function closeAutocomplete() {
+    setAcOpen(false);
+  }
+
+  function applyAutocomplete(name) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    const { word, wordStart } = getWordAtCursor(ta.value, pos);
+    const newSql = sql.slice(0, wordStart) + name + sql.slice(pos);
+    setSql(newSql);
+    // Move cursor to end of inserted word
+    const newPos = wordStart + name.length;
+    requestAnimationFrame(() => {
+      if (ta) { ta.selectionStart = ta.selectionEnd = newPos; ta.focus(); }
+    });
+    closeAutocomplete();
   }
 
   function navigateToTable(schemaName, tableName) {
@@ -111,6 +236,22 @@ export default function SqlEditor({ tab }) {
   }
 
   function handleKeyDown(e) {
+    // Autocomplete trigger: Ctrl+Space
+    if (e.ctrlKey && e.key === ' ') {
+      e.preventDefault();
+      if (acOpen) { closeAutocomplete(); } else { openAutocomplete(); }
+      return;
+    }
+
+    // If autocomplete is open, let the dropdown handle arrow/enter/tab/esc
+    // (handled by the dropdown's own keydown listener with capture)
+    if (acOpen && ['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key)) return;
+
+    // Close autocomplete on keys that break word context
+    if (acOpen && (e.key === ' ' || e.key === '(' || e.key === ')' || e.key === ';')) {
+      closeAutocomplete();
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = e.target.selectionStart;
@@ -130,12 +271,30 @@ export default function SqlEditor({ tab }) {
     }
   }
 
+  function handleChange(e) {
+    const newSql = e.target.value;
+    setSql(newSql);
+
+    // If autocomplete is open, update filter as user types
+    if (acOpen) {
+      const pos = e.target.selectionStart;
+      const { word } = getWordAtCursor(newSql, pos);
+      if (word.length === 0) {
+        closeAutocomplete();
+      } else {
+        setAcFilter(word);
+        setAcAnchor(getCaretPixelPos(e.target));
+      }
+    }
+  }
+
   async function execute() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
     const cursorPos = textareaRef.current?.selectionStart ?? 0;
     const stmt = getStatementAtCursor(sql, cursorPos);
     if (!stmt) return;
 
+    closeAutocomplete();
     setLoading(true);
     setError('');
     setAllRows([]);
@@ -178,6 +337,7 @@ export default function SqlEditor({ tab }) {
     const stmt = getStatementAtCursor(sql, cursorPos);
     if (!stmt) return;
 
+    closeAutocomplete();
     setResultMode('plan');
     setPlanLoading(true);
     setPlanError('');
@@ -276,7 +436,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          커서 위치 구문 실행 · ';' 구문 구분
+          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성
         </span>
       </div>
 
@@ -307,12 +467,14 @@ export default function SqlEditor({ tab }) {
         <textarea
           ref={textareaRef}
           value={sql}
-          onChange={e => setSql(e.target.value)}
-          onScroll={syncScroll}
+          onChange={handleChange}
+          onScroll={() => { syncScroll(); if (acOpen) closeAutocomplete(); }}
           onKeyDown={e => { handleKeyDown(e); syncScroll(); }}
           onKeyUp={syncScroll}
+          onBlur={() => { setTimeout(closeAutocomplete, 150); }}
           onClick={e => {
             syncScroll();
+            if (acOpen) closeAutocomplete();
             if (e.ctrlKey) {
               const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
               const r = getTableAtCursor(sql, pos);
@@ -330,6 +492,17 @@ export default function SqlEditor({ tab }) {
           spellCheck={false}
           wrap="off"
         />
+
+        {/* Autocomplete dropdown — rendered via portal-like fixed positioning */}
+        {acOpen && acAnchor && (
+          <AutocompleteDropdown
+            items={acItems}
+            filter={acFilter}
+            anchorRect={acAnchor}
+            onSelect={applyAutocomplete}
+            onDismiss={closeAutocomplete}
+          />
+        )}
       </div>
 
       <div
