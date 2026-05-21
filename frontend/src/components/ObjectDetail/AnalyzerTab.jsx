@@ -51,12 +51,42 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     const keys = Object.keys(map);
     if (!keys.length) return;
 
+    const ns = 'http://www.w3.org/2000/svg';
+
     // Mermaid v11 node IDs: "{chartId}-flowchart-{nodeKey}-{num}"
-    // Use substring match to avoid coupling to the mermaid sequence number
     keys.forEach(key => {
       const el = svgEl.querySelector(`[id*="-flowchart-${key}-"]`);
       if (!el) return;
       el.style.cursor = 'pointer';
+
+      // Add magnifying glass badge at top-right of the node
+      try {
+        const bbox = el.getBBox();
+        const cx = bbox.x + bbox.width - 2;
+        const cy = bbox.y + 2;
+
+        const circle = document.createElementNS(ns, 'circle');
+        circle.setAttribute('cx', cx);
+        circle.setAttribute('cy', cy);
+        circle.setAttribute('r', '9');
+        circle.setAttribute('fill', '#0d47a1');
+        circle.setAttribute('stroke', '#4fc1ff');
+        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('pointer-events', 'none');
+
+        const icon = document.createElementNS(ns, 'text');
+        icon.setAttribute('x', cx);
+        icon.setAttribute('y', cy + 4);
+        icon.setAttribute('text-anchor', 'middle');
+        icon.setAttribute('font-size', '10');
+        icon.setAttribute('fill', '#4fc1ff');
+        icon.setAttribute('pointer-events', 'none');
+        icon.textContent = '🔍';
+
+        el.appendChild(circle);
+        el.appendChild(icon);
+      } catch (_) { /* getBBox can fail if element is not rendered */ }
+
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedNode({ key, code: map[key] });
