@@ -49,23 +49,16 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const handleSvgReady = useCallback((svgEl) => {
     const map = resultRef.current?.nodeCodeMap || {};
     const keys = Object.keys(map);
-
-    // Dump ALL element IDs in the SVG (first 40)
-    const allIds = Array.from(svgEl.querySelectorAll('[id]')).map(e => e.id);
-    console.log('[SVG 진단] 전체 id 목록:', allIds);
-    console.log('[SVG 진단] nodeCodeMap 키:', keys);
-    console.log('[SVG 진단] data-id 목록:', Array.from(svgEl.querySelectorAll('[data-id]')).map(e => e.getAttribute('data-id')));
-
     if (!keys.length) return;
 
+    // Mermaid v11 node IDs: "{chartId}-flowchart-{nodeKey}-{num}"
+    // Use substring match to avoid coupling to the mermaid sequence number
     keys.forEach(key => {
-      const el = svgEl.querySelector(`[id="${key}"]`);
-      console.log(`[SVG 진단] key="${key}" → el:`, el);
+      const el = svgEl.querySelector(`[id*="-flowchart-${key}-"]`);
       if (!el) return;
       el.style.cursor = 'pointer';
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        console.log('[SVG 클릭] key:', key);
         setSelectedNode({ key, code: map[key] });
       });
     });
