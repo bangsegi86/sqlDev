@@ -251,7 +251,11 @@ export function renderHighlighted(src) {
   const tokens = highlightTokens(src);
   return tokens.map((tok, i) =>
     tok.color
-      ? <span key={i} style={{ color: tok.color }}>{tok.value}</span>
+      ? <span
+          key={i}
+          style={{ color: tok.color }}
+          className={tok.color === SQL_COLORS.table ? 'sql-table-token' : undefined}
+        >{tok.value}</span>
       : tok.value
   );
 }

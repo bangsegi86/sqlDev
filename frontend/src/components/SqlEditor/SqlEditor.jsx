@@ -127,6 +127,7 @@ export default function SqlEditor({ tab }) {
   const acSchemaRef = useRef(null);                  // schema for which acItems was loaded
 
   const isDragging = useRef(false);
+  const ctrlHeldRef = useRef(false);
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
   const preRef = useRef(null);
@@ -146,6 +147,41 @@ export default function SqlEditor({ tab }) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sql, connId, schema]);
+
+  // Ctrl-held tracking: enable pointer-events on <pre> so CSS :hover fires
+  useEffect(() => {
+    function enableCtrl() {
+      if (ctrlHeldRef.current) return;
+      ctrlHeldRef.current = true;
+      if (preRef.current) {
+        preRef.current.style.pointerEvents = 'auto';
+        preRef.current.classList.add('ctrl-mode');
+      }
+      if (textareaRef.current) {
+        textareaRef.current.style.pointerEvents = 'none';
+      }
+    }
+    function disableCtrl() {
+      ctrlHeldRef.current = false;
+      if (preRef.current) {
+        preRef.current.style.pointerEvents = 'none';
+        preRef.current.classList.remove('ctrl-mode');
+      }
+      if (textareaRef.current) {
+        textareaRef.current.style.pointerEvents = '';
+      }
+    }
+    function onKeyDown(e) { if (e.key === 'Control') enableCtrl(); }
+    function onKeyUp(e)   { if (e.key === 'Control') disableCtrl(); }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', disableCtrl);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', disableCtrl);
+    };
+  }, []);
 
   // Close autocomplete when clicking outside
   useEffect(() => {
@@ -222,6 +258,38 @@ export default function SqlEditor({ tab }) {
       if (ta) { ta.selectionStart = ta.selectionEnd = newPos; ta.focus(); }
     });
     closeAutocomplete();
+  }
+
+  function getCharPosFromPoint(x, y) {
+    let range;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(x, y);
+    } else if (document.caretPositionFromPoint) {
+      const caret = document.caretPositionFromPoint(x, y);
+      if (!caret) return -1;
+      range = document.createRange();
+      range.setStart(caret.offsetNode, caret.offset);
+    }
+    if (!range) return -1;
+    const pre = preRef.current;
+    if (!pre) return -1;
+    const clickedNode = range.startContainer;
+    const clickedOffset = range.startOffset;
+    let charPos = 0;
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      if (walker.currentNode === clickedNode) return charPos + clickedOffset;
+      charPos += walker.currentNode.textContent.length;
+    }
+    return charPos;
+  }
+
+  function handlePreClick(e) {
+    if (!ctrlHeldRef.current) return;
+    const charPos = getCharPosFromPoint(e.clientX, e.clientY);
+    if (charPos < 0) return;
+    const r = getTableAtCursor(sql, charPos);
+    if (r) navigateToTable(r.schema, r.table);
   }
 
   function navigateToTable(schemaName, tableName) {
@@ -436,7 +504,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성
+          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭 테이블 이동
         </span>
       </div>
 
@@ -445,6 +513,8 @@ export default function SqlEditor({ tab }) {
         <pre
           ref={preRef}
           aria-hidden="true"
+          className="sql-editor-pre"
+          onClick={handlePreClick}
           style={{
             position: 'absolute', inset: 0, overflow: 'hidden',
             margin: 0, padding: '10px 12px',
