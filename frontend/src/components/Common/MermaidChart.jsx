@@ -28,13 +28,30 @@ function initMermaid() {
 
 let chartSeq = 0;
 
+// Parse "flowchart-SEL1-5" → "SEL1", "flowchart-IF1-3" → "IF1"
+function parseNodeKey(rawId) {
+  if (!rawId.startsWith('flowchart-')) return null;
+  const inner = rawId.slice('flowchart-'.length);         // "SEL1-5"
+  const lastDash = inner.lastIndexOf('-');
+  if (lastDash < 0) return null;
+  const suffix = inner.slice(lastDash + 1);
+  if (!/^\d+$/.test(suffix)) return null;                 // trailing part must be numeric
+  return inner.slice(0, lastDash);                        // "SEL1"
+}
+
 export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNodeClick }) {
   const containerRef = useRef(null);
   const wrapRef = useRef(null);
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
 
-  // Render chart and attach node click handlers
+  // Always-fresh refs so event listeners never capture stale props
+  const nodeCodeMapRef = useRef(nodeCodeMap);
+  const onNodeClickRef  = useRef(onNodeClick);
+  useEffect(() => { nodeCodeMapRef.current = nodeCodeMap; }, [nodeCodeMap]);
+  useEffect(() => { onNodeClickRef.current  = onNodeClick;  }, [onNodeClick]);
+
+  // Render chart — re-runs only when the chart text changes
   useEffect(() => {
     initMermaid();
     if (!chart || !containerRef.current) return;
@@ -45,31 +62,58 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNode
         if (!containerRef.current) return;
         containerRef.current.innerHTML = svg;
         const svgEl = containerRef.current.querySelector('svg');
-        if (svgEl) {
-          svgEl.style.maxWidth = 'none';
-          svgEl.style.transform = `scale(${zoom})`;
-          svgEl.style.transformOrigin = 'top left';
+        if (!svgEl) return;
 
-          // Attach click handlers to all flowchart nodes
-          if (onNodeClick && Object.keys(nodeCodeMap).length > 0) {
-            const nodeEls = svgEl.querySelectorAll('g.node');
-            nodeEls.forEach(el => {
-              // SVG node IDs look like: "flowchart-SEL1-5"
-              const rawId = el.id || '';
-              const parts = rawId.split('-');
-              // strip leading "flowchart" and trailing numeric suffix
-              const nodeKey = parts.slice(1, -1).join('-');
-              const code = nodeCodeMap[nodeKey];
-              if (code) {
-                el.style.cursor = 'pointer';
-                el.style.transition = 'opacity 0.15s';
-                el.addEventListener('mouseenter', () => { el.style.opacity = '0.75'; });
-                el.addEventListener('mouseleave', () => { el.style.opacity = '1'; });
-                el.addEventListener('click', () => onNodeClick(nodeKey, code));
-              }
-            });
+        svgEl.style.maxWidth = 'none';
+        svgEl.style.transform = `scale(${zoom})`;
+        svgEl.style.transformOrigin = 'top left';
+
+        // Style clickable nodes
+        const styleClickable = () => {
+          const map = nodeCodeMapRef.current;
+          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
+            const key = parseNodeKey(el.id);
+            if (key && map[key]) {
+              el.style.cursor = 'pointer';
+            }
+          });
+        };
+        styleClickable();
+
+        // Event delegation — walks up from the actual click target (rect/text/etc.)
+        svgEl.addEventListener('click', (e) => {
+          const map = nodeCodeMapRef.current;
+          const handler = onNodeClickRef.current;
+          if (!handler || !Object.keys(map).length) return;
+
+          let el = e.target;
+          while (el && el !== svgEl) {
+            const key = parseNodeKey(el.id || '');
+            if (key && map[key]) {
+              handler(key, map[key]);
+              return;
+            }
+            el = el.parentElement;
           }
-        }
+        });
+
+        // Hover highlight via event delegation
+        svgEl.addEventListener('mousemove', (e) => {
+          const map = nodeCodeMapRef.current;
+          let el = e.target;
+          let found = null;
+          while (el && el !== svgEl) {
+            const key = parseNodeKey(el.id || '');
+            if (key && map[key]) { found = el; break; }
+            el = el.parentElement;
+          }
+          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(n => {
+            n.style.opacity = (found && n === found) ? '0.72' : '1';
+          });
+        });
+        svgEl.addEventListener('mouseleave', () => {
+          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(n => { n.style.opacity = '1'; });
+        });
       })
       .catch(e => {
         setError(e.message || 'Diagram render error');
