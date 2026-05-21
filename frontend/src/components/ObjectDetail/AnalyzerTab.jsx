@@ -23,7 +23,16 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   // Code panel state
   const [selectedNode, setSelectedNode] = useState(null); // { key, code }
 
+  // Pan mode: 'toggle' button or spacebar hold
+  const [panMode, setPanMode] = useState(false);   // locked by button
+  const [spacePan, setSpacePan] = useState(false); // held by spacebar
+  const isPanning = useRef(false);
+  const panStart = useRef(null);
+  const panScrollStart = useRef(null);
+
   const diagramWrapRef = useRef(null);
+
+  const effectivePan = panMode || spacePan;
 
   const analyze = useCallback(() => {
     setLoading(true); setError(''); setResult(null); setSelectedNode(null);
@@ -34,6 +43,32 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   }, [connectionId, schema, objectType, name]);
 
   useEffect(() => { analyze(); }, [analyze]);
+
+  // Spacebar → temporary pan mode (ignore when focused on inputs)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.code !== 'Space') return;
+      if (e.target.matches('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+      setSpacePan(true);
+    };
+    const onKeyUp = (e) => {
+      if (e.code === 'Space') setSpacePan(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // Update cursor when pan mode changes
+  useEffect(() => {
+    if (diagramWrapRef.current) {
+      diagramWrapRef.current.style.cursor = effectivePan ? 'grab' : 'default';
+    }
+  }, [effectivePan]);
 
   // Ctrl+Wheel zoom — must use non-passive listener
   useEffect(() => {
@@ -47,7 +82,37 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [activeSection]); // re-attach when tab changes (ref may point to new DOM)
+  }, [activeSection]);
+
+  // Pan drag handlers — cursor updated directly to avoid re-render overhead
+  function setCursor(cur) {
+    if (diagramWrapRef.current) diagramWrapRef.current.style.cursor = cur;
+  }
+
+  function onDiagramMouseDown(e) {
+    if (!effectivePan) return;
+    e.preventDefault();
+    isPanning.current = true;
+    setCursor('grabbing');
+    panStart.current = { x: e.clientX, y: e.clientY };
+    panScrollStart.current = {
+      left: diagramWrapRef.current.scrollLeft,
+      top:  diagramWrapRef.current.scrollTop,
+    };
+  }
+
+  function onDiagramMouseMove(e) {
+    if (!isPanning.current || !panStart.current || !diagramWrapRef.current) return;
+    diagramWrapRef.current.scrollLeft = panScrollStart.current.left - (e.clientX - panStart.current.x);
+    diagramWrapRef.current.scrollTop  = panScrollStart.current.top  - (e.clientY - panStart.current.y);
+  }
+
+  function onDiagramMouseUp() {
+    if (!isPanning.current) return;
+    isPanning.current = false;
+    panStart.current = null;
+    setCursor(effectivePan ? 'grab' : 'default');
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 12, color: 'var(--text-secondary)' }}>
@@ -89,6 +154,22 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
         {activeSection === 'diagram' && (
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
+            {/* Pan toggle button */}
+            <button
+              onClick={() => setPanMode(m => !m)}
+              title={panMode ? '이동 모드 해제 (Space 키로도 전환)' : '이동 모드 (Space 키로도 전환)'}
+              style={{
+                padding: '2px 9px', fontSize: 15, lineHeight: 1.4, cursor: 'pointer',
+                border: `1px solid ${panMode || spacePan ? 'var(--accent-bright)' : 'var(--border)'}`,
+                background: panMode ? 'rgba(79,193,255,0.15)' : spacePan ? 'rgba(79,193,255,0.08)' : 'var(--bg-input)',
+                color: panMode || spacePan ? 'var(--accent-bright)' : 'var(--text-secondary)',
+                borderRadius: 4,
+              }}
+            >✋</button>
+
+            <div style={{ width: 1, height: 14, background: 'var(--border)' }} />
+
+            {/* Zoom controls */}
             <button className="btn-secondary" onClick={() => setZoom(z => Math.max(0.2, +(z - 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>−</button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 40, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
             <button className="btn-secondary" onClick={() => setZoom(z => Math.min(3, +(z + 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>+</button>
@@ -107,13 +188,20 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
             {/* Diagram area */}
             <div
               ref={diagramWrapRef}
-              style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)', minWidth: 0 }}
+              style={{
+                flex: 1, overflow: 'auto', background: 'var(--bg-primary)', minWidth: 0,
+                userSelect: effectivePan ? 'none' : 'auto',
+              }}
+              onMouseDown={onDiagramMouseDown}
+              onMouseMove={onDiagramMouseMove}
+              onMouseUp={onDiagramMouseUp}
+              onMouseLeave={onDiagramMouseUp}
             >
               <MermaidChart
                 chart={result.mermaid}
                 zoom={zoom}
-                nodeCodeMap={result.nodeCodeMap || {}}
-                onNodeClick={(key, code) => setSelectedNode({ key, code })}
+                nodeCodeMap={effectivePan ? {} : (result.nodeCodeMap || {})}
+                onNodeClick={effectivePan ? undefined : (key, code) => setSelectedNode({ key, code })}
               />
             </div>
 
