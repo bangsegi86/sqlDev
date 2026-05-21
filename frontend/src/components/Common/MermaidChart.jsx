@@ -28,7 +28,7 @@ function initMermaid() {
 
 let chartSeq = 0;
 
-export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {} }) {
+export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRenderComplete }) {
   const containerRef = useRef(null);
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
@@ -50,19 +50,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {} }) {
         svgEl.style.transform = `scale(${zoom})`;
         svgEl.style.transformOrigin = 'top left';
 
-        // Mark clickable nodes so CSS can apply cursor:pointer
-        const map = nodeCodeMap;
-        svgEl.querySelectorAll('[data-id]').forEach(el => {
-          if (map[el.getAttribute('data-id')]) el.classList.add('flow-clickable');
-        });
-        svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
-          const inner = el.id.slice('flowchart-'.length);
-          const lastDash = inner.lastIndexOf('-');
-          if (lastDash > 0 && /^\d+$/.test(inner.slice(lastDash + 1))) {
-            const key = inner.slice(0, lastDash);
-            if (map[key]) el.classList.add('flow-clickable');
-          }
-        });
+        if (onRenderComplete) onRenderComplete(svgEl);
       })
       .catch(e => setError(e.message || 'Diagram render error'));
 

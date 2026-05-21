@@ -33,16 +33,61 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const panScrollStart = useRef(null);
 
   const diagramWrapRef = useRef(null);
+  const resultRef = useRef(null);      // always-fresh result for SVG callbacks
 
   const effectivePan = panMode || spacePan;
 
   const analyze = useCallback(() => {
     setLoading(true); setError(''); setResult(null); setSelectedNode(null);
     api.analyzeProcedure(connectionId, schema, objectType, name)
-      .then(setResult)
+      .then(r => { resultRef.current = r; setResult(r); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [connectionId, schema, objectType, name]);
+
+  // Called by MermaidChart after SVG is injected into DOM
+  const handleSvgReady = useCallback((svgEl) => {
+    const map = resultRef.current?.nodeCodeMap || {};
+    const keys = Object.keys(map);
+
+    console.log('[흐름도 클릭] nodeCodeMap 키:', keys);
+    console.log('[흐름도 클릭] data-id 요소:', Array.from(svgEl.querySelectorAll('[data-id]')).map(e => e.getAttribute('data-id')));
+    console.log('[흐름도 클릭] flowchart-* 요소:', Array.from(svgEl.querySelectorAll('[id^="flowchart-"]')).map(e => e.id));
+
+    if (!keys.length) {
+      console.warn('[흐름도 클릭] nodeCodeMap이 비어 있음 — 클릭 기능 비활성');
+      return;
+    }
+
+    // data-id 방식 (Mermaid v10/v11)
+    svgEl.querySelectorAll('[data-id]').forEach(el => {
+      const id = el.getAttribute('data-id');
+      if (!map[id]) return;
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('[흐름도 클릭] 클릭됨 data-id:', id);
+        setSelectedNode({ key: id, code: map[id] });
+      });
+    });
+
+    // id="flowchart-SEL1-3" 방식 (fallback)
+    svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
+      const inner = el.id.slice('flowchart-'.length);
+      const lastDash = inner.lastIndexOf('-');
+      if (lastDash <= 0) return;
+      if (!/^\d+$/.test(inner.slice(lastDash + 1))) return;
+      const key = inner.slice(0, lastDash);
+      if (!map[key] || el.dataset.handled) return;
+      el.dataset.handled = '1';
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('[흐름도 클릭] 클릭됨 id:', el.id, '→ key:', key);
+        setSelectedNode({ key, code: map[key] });
+      });
+    });
+  }, []);
 
   useEffect(() => { analyze(); }, [analyze]);
 
@@ -198,40 +243,12 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
               onMouseMove={onDiagramMouseMove}
               onMouseUp={onDiagramMouseUp}
               onMouseLeave={onDiagramMouseUp}
-              onClick={(e) => {
-                if (effectivePan) return;
-                const map = result?.nodeCodeMap || {};
-                if (!Object.keys(map).length) return;
-                // Walk up from actual click target (Mermaid nodes have child rect/text/etc.)
-                let el = e.target;
-                while (el && el !== diagramWrapRef.current) {
-                  // Mermaid v10/v11: data-id attribute
-                  const dataId = el.getAttribute && el.getAttribute('data-id');
-                  if (dataId && map[dataId]) {
-                    setSelectedNode({ key: dataId, code: map[dataId] });
-                    return;
-                  }
-                  // Fallback: parse from id="flowchart-SEL1-5" → "SEL1"
-                  const rawId = el.id || '';
-                  if (rawId.startsWith('flowchart-')) {
-                    const inner = rawId.slice('flowchart-'.length);
-                    const lastDash = inner.lastIndexOf('-');
-                    if (lastDash > 0 && /^\d+$/.test(inner.slice(lastDash + 1))) {
-                      const key = inner.slice(0, lastDash);
-                      if (map[key]) {
-                        setSelectedNode({ key, code: map[key] });
-                        return;
-                      }
-                    }
-                  }
-                  el = el.parentElement;
-                }
-              }}
             >
               <MermaidChart
                 chart={result.mermaid}
                 zoom={zoom}
                 nodeCodeMap={result.nodeCodeMap || {}}
+                onRenderComplete={handleSvgReady}
               />
             </div>
 
