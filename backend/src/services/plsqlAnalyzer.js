@@ -120,7 +120,7 @@ function collectCondition(toks, i, ...stopWords) {
     if (toks[i].t === 'STR') { parts.push("'…'"); i++; continue; }
     parts.push(toks[i].v); i++;
   }
-  return { text: parts.join(' ').replace(/\s+/g,' ').trim().slice(0, 120), endIdx: i };
+  return { text: parts.join(' ').replace(/\s+/g,' ').trim(), endIdx: i };
 }
 
 // collectUntil kept for backward compatibility (same as collectCondition)
@@ -509,10 +509,35 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   return { endIds: [joinId] };
 }
 
+function buildLoopCodeDetail(step, indent) {
+  indent = indent || '';
+  const lines = [step.code];
+  for (const s of (step.steps || [])) {
+    if (!s) continue;
+    if (s.type === 'for_loop' || s.type === 'while_loop' || s.type === 'loop') {
+      lines.push(indent + '  ' + s.code);
+      lines.push(indent + '    ...');
+      lines.push(indent + '  END LOOP;');
+    } else if (s.type === 'if') {
+      lines.push(indent + '  IF ' + s.condition + ' THEN');
+      for (const br of (s.branches || [])) {
+        for (const bs of (br.steps || [])) {
+          if (bs && bs.code) lines.push(indent + '    ' + bs.code + ';');
+        }
+      }
+      lines.push(indent + '  END IF;');
+    } else if (s.code) {
+      lines.push(indent + '  ' + s.code + ';');
+    }
+  }
+  lines.push(indent + 'END LOOP;');
+  return lines.join('\n');
+}
+
 function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCodeMap = {}) {
   const id = nid('LOOP');
   const AT = arrowTo(edgeLabel);
-  nodeCodeMap[id] = step.code || headerLabel;
+  nodeCodeMap[id] = buildLoopCodeDetail(step, '');
   const summary = summarizeSteps(step.steps).slice(0, 4).map(s => esc(s)).join('\\n');
   lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
   lines.push(`  class ${id} loopBox`);
