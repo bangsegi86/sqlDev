@@ -2,16 +2,73 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
+import PlanViewer from './PlanViewer.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
-import { renderHighlighted } from '../../utils/sqlHighlight.js';
+import { renderHighlighted, getTableAtCursor } from '../../utils/sqlHighlight.js';
+import { openTab } from '../../store/AppContext.jsx';
+
+const LIMIT = 500;
+
+// Splits sql by ';' that are not inside string literals.
+function splitStatements(sql) {
+  const segs = [];
+  let start = 0;
+  let inStr = false;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (!inStr && ch === "'") { inStr = true; }
+    else if (inStr) {
+      if (ch === "'" && sql[i + 1] === "'") { i++; }
+      else if (ch === "'") { inStr = false; }
+    } else if (ch === ';') {
+      segs.push({ start, end: i });
+      start = i + 1;
+    }
+  }
+  segs.push({ start, end: sql.length });
+  return segs;
+}
+
+function getStatementAtCursor(sql, cursorPos) {
+  const segs = splitStatements(sql);
+  for (const { start, end } of segs) {
+    if (cursorPos >= start && cursorPos <= end) {
+      const text = sql.slice(start, end).trim();
+      if (text) return text;
+    }
+  }
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const text = sql.slice(segs[i].start, segs[i].end).trim();
+    if (text) return text;
+  }
+  return sql.trim().replace(/;+\s*$/, '');
+}
 
 export default function SqlEditor({ tab }) {
   const { state, dispatch } = useApp();
   const [sql, setSql] = useState(tab.content?.sql || '');
-  const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [splitPos, setSplitPos] = useState(50);
+
+  // Accumulated result state
+  const [resultCols, setResultCols] = useState([]);
+  const [allRows, setAllRows] = useState([]);
+  const [total, setTotal] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
+  const [lastStmt, setLastStmt] = useState('');
+  const [execMsg, setExecMsg] = useState('');
+  const [execTime, setExecTime] = useState(null);
+
+  // Result view mode: 'result' | 'plan'
+  const [resultMode, setResultMode] = useState('result');
+  const [planRaw, setPlanRaw] = useState('');
+  const [planAnalysis, setPlanAnalysis] = useState(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState('');
+
   const isDragging = useRef(false);
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
@@ -27,6 +84,7 @@ export default function SqlEditor({ tab }) {
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'F5') { e.preventDefault(); execute(); }
+      if (e.key === 'F6') { e.preventDefault(); explainPlan(); }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -41,34 +99,122 @@ export default function SqlEditor({ tab }) {
     }
   }
 
-  function handleTabKey(e) {
+  function navigateToTable(schemaName, tableName) {
+    const s = schemaName || schema;
+    if (!s || !tableName) return;
+    openTab(dispatch, state, {
+      id: `TABLE-${connId}-${s}-${tableName}`,
+      type: 'table', title: tableName,
+      connectionId: connId,
+      content: { schema: s, objectType: 'TABLE', name: tableName },
+    });
+  }
+
+  function handleKeyDown(e) {
     if (e.key === 'Tab') {
       e.preventDefault();
       const start = e.target.selectionStart;
       const end = e.target.selectionEnd;
-      const next = sql.slice(0, start) + '  ' + sql.slice(end);
-      setSql(next);
+      setSql(sql.slice(0, start) + '  ' + sql.slice(end));
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
         }
       });
     }
+    if (e.key === 'F4') {
+      e.preventDefault();
+      const pos = textareaRef.current?.selectionStart ?? 0;
+      const r = getTableAtCursor(sql, pos);
+      if (r) navigateToTable(r.schema, r.table);
+    }
   }
 
   async function execute() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
-    if (!sql.trim()) return;
-    setLoading(true); setError(''); setResult(null);
+    const cursorPos = textareaRef.current?.selectionStart ?? 0;
+    const stmt = getStatementAtCursor(sql, cursorPos);
+    if (!stmt) return;
+
+    setLoading(true);
+    setError('');
+    setAllRows([]);
+    setResultCols([]);
+    setTotal(null);
+    setHasMore(false);
+    setNextPage(2);
+    setExecMsg('');
+    setExecTime(null);
+    setLastStmt(stmt);
+    setResultMode('result');
+
     try {
-      const r = await api.executeQuery(connId, sql.trim(), schema);
-      setResult(r);
-      const msg = r.message || `${r.rowCount} rows | ${r.executionTime}ms`;
-      dispatch({ type: 'SET_STATUS', payload: msg });
+      const r = await api.executeQuery(connId, stmt, schema, 1, LIMIT);
+      if (r.message) {
+        setExecMsg(r.message);
+        setExecTime(r.executionTime);
+        dispatch({ type: 'SET_STATUS', payload: `${r.message} | ${r.executionTime}ms` });
+      } else {
+        setResultCols(r.columns || []);
+        setAllRows(r.rows || []);
+        setTotal(r.total ?? null);
+        setHasMore((r.total ?? 0) > (r.rows?.length ?? 0));
+        setNextPage(2);
+        const statusMsg = `총 ${(r.total ?? r.rows?.length ?? 0).toLocaleString()}행 | ${r.executionTime}ms`;
+        dispatch({ type: 'SET_STATUS', payload: statusMsg });
+        setExecTime(r.executionTime);
+      }
     } catch (e) {
       setError(e.message);
       dispatch({ type: 'SET_STATUS', payload: `Error: ${e.message}` });
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function explainPlan() {
+    if (!connId) { setError('연결을 선택하세요.'); return; }
+    const cursorPos = textareaRef.current?.selectionStart ?? 0;
+    const stmt = getStatementAtCursor(sql, cursorPos);
+    if (!stmt) return;
+
+    setResultMode('plan');
+    setPlanLoading(true);
+    setPlanError('');
+    setPlanRaw('');
+    setPlanAnalysis(null);
+
+    try {
+      const { plan } = await api.explainQuery(connId, stmt, schema);
+      setPlanRaw(plan);
+      const analysis = await api.analyzeExplain(connId, plan);
+      setPlanAnalysis(analysis);
+      dispatch({ type: 'SET_STATUS', payload: `실행계획 조회 완료 — ${analysis.gradeLabel}` });
+    } catch (e) {
+      setPlanError(e.message);
+      dispatch({ type: 'SET_STATUS', payload: `실행계획 오류: ${e.message}` });
+    } finally {
+      setPlanLoading(false);
+    }
+  }
+
+  async function loadMore() {
+    if (!hasMore || loadingMore || !lastStmt || !connId) return;
+    setLoadingMore(true);
+    try {
+      const r = await api.executeQuery(connId, lastStmt, schema, nextPage, LIMIT);
+      const newRows = r.rows || [];
+      setAllRows(prev => {
+        const combined = [...prev, ...newRows];
+        setHasMore(combined.length < (r.total ?? 0));
+        return combined;
+      });
+      setNextPage(p => p + 1);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   function onDividerMouseDown(e) {
@@ -77,27 +223,51 @@ export default function SqlEditor({ tab }) {
     function onMove(ev) {
       if (!isDragging.current || !containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
-      setSplitPos(Math.min(85, Math.max(15, pct)));
+      setSplitPos(Math.min(85, Math.max(15, ((ev.clientY - rect.top) / rect.height) * 100)));
     }
-    function onUp() { isDragging.current = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+    function onUp() {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
 
+  const hasResult = resultCols.length > 0 || execMsg || loading;
+
+  const tabBtn = (mode, label) => (
+    <button
+      onClick={() => setResultMode(mode)}
+      style={{
+        padding: '3px 10px', fontSize: 11, cursor: 'pointer', background: 'none',
+        border: 'none', borderBottom: resultMode === mode ? '2px solid var(--accent-bright)' : '2px solid transparent',
+        color: resultMode === mode ? 'var(--accent-bright)' : 'var(--text-secondary)',
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Toolbar */}
       <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
         <button className="btn-success" onClick={execute} disabled={loading} style={{ padding: '3px 12px' }}>
           {loading ? <span className="spinner" /> : '▶ 실행'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>F5</span>
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <button className="btn-secondary" onClick={explainPlan} disabled={planLoading} style={{ padding: '3px 10px' }}>
+          {planLoading ? <span className="spinner" /> : '📊 실행계획'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>F6</span>
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
         <button
           className="btn-secondary"
           onClick={() => setSql(prev => formatSQL(prev))}
           style={{ padding: '3px 10px' }}
-          title="SQL 코드 줄 맞추기 (들여쓰기 정렬)"
+          title="SQL 코드 줄 맞추기"
         >≡ 줄 맞추기</button>
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -105,11 +275,13 @@ export default function SqlEditor({ tab }) {
             {schema && ` › ${schema}`}
           </span>
         )}
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
+          커서 위치 구문 실행 · ';' 구문 구분
+        </span>
       </div>
 
-      {/* ── Editor: highlighted pre + transparent textarea overlay ── */}
+      {/* Editor overlay */}
       <div style={{ position: 'relative', height: `${splitPos}%`, overflow: 'hidden', background: 'var(--bg-primary)' }}>
-        {/* Highlighted display layer (behind textarea) */}
         <pre
           ref={preRef}
           aria-hidden="true"
@@ -121,10 +293,8 @@ export default function SqlEditor({ tab }) {
             background: 'var(--bg-primary)', pointerEvents: 'none',
           }}
         >
-          {highlightedSql}
-          {'\n'}
+          {highlightedSql}{'\n'}
         </pre>
-        {/* Placeholder shown only when editor is empty */}
         {!sql && (
           <div style={{
             position: 'absolute', top: 0, left: 0, padding: '10px 12px',
@@ -134,25 +304,28 @@ export default function SqlEditor({ tab }) {
             SELECT * FROM TABLE_NAME;
           </div>
         )}
-        {/* Input capture layer (text invisible, caret visible) */}
         <textarea
           ref={textareaRef}
           value={sql}
           onChange={e => setSql(e.target.value)}
           onScroll={syncScroll}
-          onKeyDown={e => { handleTabKey(e); syncScroll(); }}
+          onKeyDown={e => { handleKeyDown(e); syncScroll(); }}
           onKeyUp={syncScroll}
-          onClick={syncScroll}
+          onClick={e => {
+            syncScroll();
+            if (e.ctrlKey) {
+              const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
+              const r = getTableAtCursor(sql, pos);
+              if (r) navigateToTable(r.schema, r.table);
+            }
+          }}
           style={{
             position: 'absolute', inset: 0,
             resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
             fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
-            background: 'transparent',
-            color: 'transparent',
-            caretColor: 'var(--text-primary)',
-            padding: '10px 12px',
-            whiteSpace: 'pre',
-            overflow: 'auto',
+            background: 'transparent', color: 'transparent',
+            caretColor: 'var(--text-primary)', padding: '10px 12px',
+            whiteSpace: 'pre', overflow: 'auto',
           }}
           spellCheck={false}
           wrap="off"
@@ -164,31 +337,78 @@ export default function SqlEditor({ tab }) {
         onMouseDown={onDividerMouseDown}
       />
 
+      {/* Result pane */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
+        {/* Result/Plan tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-panel)', flexShrink: 0, padding: '0 4px' }}>
+          {tabBtn('result', '결과')}
+          {tabBtn('plan', '실행계획')}
+        </div>
+
         {error && (
-          <div style={{ padding: '8px 12px', background: 'rgba(244,71,71,0.1)', borderBottom: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 12, fontFamily: 'var(--code-font)' }}>
+          <div style={{ padding: '8px 12px', background: 'rgba(244,71,71,0.1)', borderBottom: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 12, fontFamily: 'var(--code-font)', flexShrink: 0 }}>
             {error}
           </div>
         )}
-        {result && (
+
+        {/* Result tab */}
+        {resultMode === 'result' && (
           <>
-            <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 12 }}>
-              {result.message
-                ? <span>{result.message}</span>
-                : <>
-                  <span>{result.rowCount} rows</span>
-                  <span>{result.executionTime}ms</span>
-                </>}
-            </div>
-            {result.columns.length > 0 && (
-              <DataGrid columns={result.columns} rows={result.rows} />
+            {hasResult && (
+              <>
+                {!loading && (
+                  <div style={{ padding: '3px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
+                    {execMsg ? (
+                      <span>{execMsg}</span>
+                    ) : (
+                      <>
+                        <span>
+                          <b style={{ color: 'var(--text-primary)' }}>{allRows.length.toLocaleString()}</b>
+                          {total != null && total !== allRows.length
+                            ? <span style={{ color: 'var(--text-dim)' }}> / {total.toLocaleString()}행 로드됨</span>
+                            : <span style={{ color: 'var(--text-dim)' }}>행</span>
+                          }
+                        </span>
+                        {execTime != null && <span>{execTime}ms</span>}
+                        {hasMore && (
+                          <span style={{ color: 'var(--accent)', fontSize: 10 }}>
+                            ↓ 스크롤하거나 버튼으로 추가 로드
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {(resultCols.length > 0 || loading) && (
+                  <DataGrid
+                    columns={resultCols}
+                    rows={allRows}
+                    onLoadMore={loadMore}
+                    hasMore={hasMore}
+                    loadingMore={loadingMore}
+                    loading={loading || loadingMore}
+                  />
+                )}
+              </>
+            )}
+
+            {!hasResult && !error && !loading && (
+              <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: 12 }}>
+                SQL을 입력하고 F5 또는 ▶ 버튼으로 실행하세요. ';' 으로 여러 구문을 구분할 수 있습니다.
+              </div>
             )}
           </>
         )}
-        {!result && !error && !loading && (
-          <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: 12 }}>
-            SQL을 입력하고 F5 또는 ▶ 버튼으로 실행하세요.
-          </div>
+
+        {/* Plan tab */}
+        {resultMode === 'plan' && (
+          <PlanViewer
+            rawPlan={planRaw}
+            analysis={planAnalysis}
+            loading={planLoading}
+            error={planError}
+          />
         )}
       </div>
     </div>
