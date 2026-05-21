@@ -1,11 +1,33 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
-export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, sortDir }) {
+export default function DataGrid({
+  columns = [], rows = [],
+  onSort, sortColumn, sortDir,
+  rowOffset = 0,
+  // Lazy-load props (optional)
+  onLoadMore, hasMore = false, loadingMore = false,
+}) {
   const containerRef = useRef(null);
+  const sentinelRef = useRef(null);
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
+
+  // IntersectionObserver: auto-trigger onLoadMore when sentinel scrolls into view
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || loadingMore) return;
+    const sentinel = sentinelRef.current;
+    const root = containerRef.current;
+    if (!sentinel || !root) return;
+
+    const observer = new IntersectionObserver(
+      entries => { if (entries[0].isIntersecting) onLoadMore(); },
+      { root, rootMargin: '180px', threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [onLoadMore, hasMore, loadingMore]);
 
   function handleFitData() {
     fitToData(rows.map(row => {
@@ -58,7 +80,7 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
           <tbody>
             {rows.map((row, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.03)' }}>
-                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{i + 1}</td>
+                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{rowOffset + i + 1}</td>
                 {columns.map(col => {
                   const val = row[col];
                   return (
@@ -75,6 +97,31 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
               <tr>
                 <td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 20 }}>
                   No data
+                </td>
+              </tr>
+            )}
+
+            {/* Lazy-load sentinel / indicator */}
+            {(hasMore || loadingMore) && (
+              <tr ref={sentinelRef}>
+                <td
+                  colSpan={columns.length + 1}
+                  style={{ textAlign: 'center', padding: '10px 8px', borderTop: '1px solid var(--border)' }}
+                >
+                  {loadingMore ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                      <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                      데이터 로딩 중...
+                    </span>
+                  ) : (
+                    <button
+                      className="btn-secondary"
+                      onClick={onLoadMore}
+                      style={{ padding: '4px 16px', fontSize: 12 }}
+                    >
+                      + 500건 더 불러오기
+                    </button>
+                  )}
                 </td>
               </tr>
             )}
