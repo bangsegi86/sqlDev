@@ -28,30 +28,12 @@ function initMermaid() {
 
 let chartSeq = 0;
 
-// Parse "flowchart-SEL1-5" → "SEL1", "flowchart-IF1-3" → "IF1"
-function parseNodeKey(rawId) {
-  if (!rawId.startsWith('flowchart-')) return null;
-  const inner = rawId.slice('flowchart-'.length);         // "SEL1-5"
-  const lastDash = inner.lastIndexOf('-');
-  if (lastDash < 0) return null;
-  const suffix = inner.slice(lastDash + 1);
-  if (!/^\d+$/.test(suffix)) return null;                 // trailing part must be numeric
-  return inner.slice(0, lastDash);                        // "SEL1"
-}
-
-export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNodeClick }) {
+export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {} }) {
   const containerRef = useRef(null);
-  const wrapRef = useRef(null);
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
 
-  // Always-fresh refs so event listeners never capture stale props
-  const nodeCodeMapRef = useRef(nodeCodeMap);
-  const onNodeClickRef  = useRef(onNodeClick);
-  useEffect(() => { nodeCodeMapRef.current = nodeCodeMap; }, [nodeCodeMap]);
-  useEffect(() => { onNodeClickRef.current  = onNodeClick;  }, [onNodeClick]);
-
-  // Render chart — re-runs only when the chart text changes
+  // Re-render SVG when chart text changes
   useEffect(() => {
     initMermaid();
     if (!chart || !containerRef.current) return;
@@ -68,66 +50,29 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNode
         svgEl.style.transform = `scale(${zoom})`;
         svgEl.style.transformOrigin = 'top left';
 
-        // Style clickable nodes
-        const styleClickable = () => {
-          const map = nodeCodeMapRef.current;
-          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
-            const key = parseNodeKey(el.id);
-            if (key && map[key]) {
-              el.style.cursor = 'pointer';
-            }
-          });
-        };
-        styleClickable();
-
-        // Event delegation — walks up from the actual click target (rect/text/etc.)
-        svgEl.addEventListener('click', (e) => {
-          const map = nodeCodeMapRef.current;
-          const handler = onNodeClickRef.current;
-          if (!handler || !Object.keys(map).length) return;
-
-          let el = e.target;
-          while (el && el !== svgEl) {
-            const key = parseNodeKey(el.id || '');
-            if (key && map[key]) {
-              handler(key, map[key]);
-              return;
-            }
-            el = el.parentElement;
-          }
+        // Mark clickable nodes so CSS can apply cursor:pointer
+        const map = nodeCodeMap;
+        svgEl.querySelectorAll('[data-id]').forEach(el => {
+          if (map[el.getAttribute('data-id')]) el.classList.add('flow-clickable');
         });
-
-        // Hover highlight via event delegation
-        svgEl.addEventListener('mousemove', (e) => {
-          const map = nodeCodeMapRef.current;
-          let el = e.target;
-          let found = null;
-          while (el && el !== svgEl) {
-            const key = parseNodeKey(el.id || '');
-            if (key && map[key]) { found = el; break; }
-            el = el.parentElement;
+        svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
+          const inner = el.id.slice('flowchart-'.length);
+          const lastDash = inner.lastIndexOf('-');
+          if (lastDash > 0 && /^\d+$/.test(inner.slice(lastDash + 1))) {
+            const key = inner.slice(0, lastDash);
+            if (map[key]) el.classList.add('flow-clickable');
           }
-          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(n => {
-            n.style.opacity = (found && n === found) ? '0.72' : '1';
-          });
-        });
-        svgEl.addEventListener('mouseleave', () => {
-          svgEl.querySelectorAll('[id^="flowchart-"]').forEach(n => { n.style.opacity = '1'; });
         });
       })
-      .catch(e => {
-        setError(e.message || 'Diagram render error');
-      });
+      .catch(e => setError(e.message || 'Diagram render error'));
 
     idRef.current = `mermaid-${++chartSeq}`;
-  }, [chart]); // re-render only when chart changes
+  }, [chart]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update zoom without re-rendering
+  // Update zoom without full re-render
   useEffect(() => {
     const svgEl = containerRef.current?.querySelector('svg');
-    if (svgEl) {
-      svgEl.style.transform = `scale(${zoom})`;
-    }
+    if (svgEl) svgEl.style.transform = `scale(${zoom})`;
   }, [zoom]);
 
   if (error) {
@@ -140,7 +85,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNode
   }
 
   return (
-    <div ref={wrapRef} style={{ padding: 16, overflow: 'auto', minHeight: 200 }}>
+    <div style={{ padding: 16, overflow: 'auto', minHeight: 200 }}>
       <div ref={containerRef} />
     </div>
   );

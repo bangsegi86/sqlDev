@@ -165,3 +165,7 @@ textarea {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Flowchart: clickable node highlight */
+.flow-clickable { cursor: pointer !important; }
+.flow-clickable:hover { opacity: 0.75; }

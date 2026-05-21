@@ -198,12 +198,40 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
               onMouseMove={onDiagramMouseMove}
               onMouseUp={onDiagramMouseUp}
               onMouseLeave={onDiagramMouseUp}
+              onClick={(e) => {
+                if (effectivePan) return;
+                const map = result?.nodeCodeMap || {};
+                if (!Object.keys(map).length) return;
+                // Walk up from actual click target (Mermaid nodes have child rect/text/etc.)
+                let el = e.target;
+                while (el && el !== diagramWrapRef.current) {
+                  // Mermaid v10/v11: data-id attribute
+                  const dataId = el.getAttribute && el.getAttribute('data-id');
+                  if (dataId && map[dataId]) {
+                    setSelectedNode({ key: dataId, code: map[dataId] });
+                    return;
+                  }
+                  // Fallback: parse from id="flowchart-SEL1-5" → "SEL1"
+                  const rawId = el.id || '';
+                  if (rawId.startsWith('flowchart-')) {
+                    const inner = rawId.slice('flowchart-'.length);
+                    const lastDash = inner.lastIndexOf('-');
+                    if (lastDash > 0 && /^\d+$/.test(inner.slice(lastDash + 1))) {
+                      const key = inner.slice(0, lastDash);
+                      if (map[key]) {
+                        setSelectedNode({ key, code: map[key] });
+                        return;
+                      }
+                    }
+                  }
+                  el = el.parentElement;
+                }
+              }}
             >
               <MermaidChart
                 chart={result.mermaid}
                 zoom={zoom}
-                nodeCodeMap={effectivePan ? {} : (result.nodeCodeMap || {})}
-                onNodeClick={effectivePan ? undefined : (key, code) => setSelectedNode({ key, code })}
+                nodeCodeMap={result.nodeCodeMap || {}}
               />
             </div>
 
