@@ -28,10 +28,26 @@ function initMermaid() {
 
 let chartSeq = 0;
 
+function applyZoom(svgEl, wrapEl, zoom) {
+  if (!svgEl || !wrapEl) return;
+  svgEl.style.transform = `scale(${zoom})`;
+  svgEl.style.transformOrigin = 'top left';
+  // Make the wrapper match the visual (scaled) size so the scroll container
+  // knows the true content dimensions — CSS transform alone doesn't affect layout.
+  const vb = svgEl.viewBox?.baseVal;
+  const origW = (vb && vb.width > 0) ? vb.width : svgEl.getBoundingClientRect().width / zoom;
+  const origH = (vb && vb.height > 0) ? vb.height : svgEl.getBoundingClientRect().height / zoom;
+  wrapEl.style.width  = `${origW * zoom + 32}px`;   // +32 for padding
+  wrapEl.style.height = `${origH * zoom + 32}px`;
+}
+
 export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRenderComplete }) {
-  const containerRef = useRef(null);
+  const wrapRef = useRef(null);       // outer padding div — sets scroll content size
+  const containerRef = useRef(null);  // inner div holding the SVG
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   // Re-render SVG when chart text changes
   useEffect(() => {
@@ -47,8 +63,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRend
         if (!svgEl) return;
 
         svgEl.style.maxWidth = 'none';
-        svgEl.style.transform = `scale(${zoom})`;
-        svgEl.style.transformOrigin = 'top left';
+        applyZoom(svgEl, wrapRef.current, zoomRef.current);
 
         if (onRenderComplete) onRenderComplete(svgEl);
       })
@@ -60,7 +75,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRend
   // Update zoom without full re-render
   useEffect(() => {
     const svgEl = containerRef.current?.querySelector('svg');
-    if (svgEl) svgEl.style.transform = `scale(${zoom})`;
+    applyZoom(svgEl, wrapRef.current, zoom);
   }, [zoom]);
 
   if (error) {
@@ -73,7 +88,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRend
   }
 
   return (
-    <div style={{ padding: 16, overflow: 'auto', minHeight: 200 }}>
+    <div ref={wrapRef} style={{ padding: 16, minHeight: 200, display: 'inline-block', minWidth: '100%' }}>
       <div ref={containerRef} />
     </div>
   );
