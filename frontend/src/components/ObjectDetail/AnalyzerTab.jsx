@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
+import { useCopy } from '../../utils/clipboard.js';
 
 export default function AnalyzerTab({ connectionId, schema, objectType, name }) {
   const [result, setResult] = useState(null);
+  const [copyMermaid, mermaidCopied] = useCopy();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState(1);
@@ -84,7 +86,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
           <div style={{ padding: 12 }}>
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Mermaid 다이어그램 소스</span>
-              <button className="btn-secondary" onClick={() => navigator.clipboard.writeText(result.mermaid)} style={{ padding: '2px 8px', fontSize: 11 }}>📋 복사</button>
+              <button className="btn-secondary" onClick={() => copyMermaid(result.mermaid)} style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}>{mermaidCopied ? '✓ 복사됨' : '📋 복사'}</button>
             </div>
             <pre style={{ fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', background: 'var(--bg-panel)', padding: 12, borderRadius: 4, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
               {result.mermaid}

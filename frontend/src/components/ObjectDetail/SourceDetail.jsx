@@ -5,6 +5,7 @@ import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines } from '../../utils/sqlHighlight.js';
+import { useCopy } from '../../utils/clipboard.js';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 
@@ -15,6 +16,7 @@ export default function SourceDetail({ tab }) {
   const [activeTab, setActiveTab] = useState(tab.content.activeTab || (canAnalyze ? 'analyzer' : 'source'));
   const [source, setSource] = useState('');
   const [isFormatted, setIsFormatted] = useState(false);
+  const [copySource, sourceCopied] = useCopy();
   const [formattedSource, setFormattedSource] = useState('');
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -98,9 +100,9 @@ export default function SourceDetail({ tab }) {
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
                 className="btn-secondary"
-                onClick={() => navigator.clipboard.writeText(isFormatted ? formattedSource : source)}
-                style={{ padding: '2px 8px', fontSize: 11 }}
-              >📋 복사</button>
+                onClick={() => copySource(isFormatted ? formattedSource : source)}
+                style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
+              >{sourceCopied ? '✓ 복사됨' : '📋 복사'}</button>
               <button
                 className={isFormatted ? 'btn-success' : 'btn-secondary'}
                 style={{ padding: '2px 8px', fontSize: 11 }}
