@@ -339,6 +339,50 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
   }
 }
 
+export async function explainSQL(id, sql, schema) {
+  const entry = pools.get(id);
+  if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+
+  const cleanSql = sql.trim().replace(/;+\s*$/, '');
+  const stmtId = `SD${Date.now()}`;
+
+  if (entry.type === 'jdbc') {
+    // JDBC path: run EXPLAIN PLAN then query PLAN_TABLE
+    try {
+      await jdbcExecute(id, `EXPLAIN PLAN SET STATEMENT_ID = '${stmtId}' FOR ${cleanSql}`, {});
+      const r = await jdbcExecute(id,
+        `SELECT PLAN_TABLE_OUTPUT FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE','${stmtId}','ALL'))`, {});
+      const planText = (r.rows || []).map(row => Object.values(row)[0]).join('\n');
+      jdbcExecute(id, `DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = '${stmtId}'`, {}).catch(() => {});
+      return planText;
+    } catch (e) {
+      throw new Error(`실행계획 조회 실패: ${e.message}`);
+    }
+  }
+
+  const conn = await entry.pool.getConnection();
+  try {
+    if (schema) await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`);
+
+    await conn.execute(`EXPLAIN PLAN SET STATEMENT_ID = '${stmtId}' FOR ${cleanSql}`);
+
+    const result = await conn.execute(
+      `SELECT PLAN_TABLE_OUTPUT FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', :sid, 'ALL'))`,
+      { sid: stmtId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const planText = (result.rows || []).map(r => r.PLAN_TABLE_OUTPUT).join('\n');
+
+    // Clean up plan table entry (best-effort)
+    conn.execute(`DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = '${stmtId}'`)
+      .then(() => conn.commit()).catch(() => {});
+
+    return planText;
+  } finally {
+    await conn.close();
+  }
+}
+
 process.on('SIGTERM', async () => {
   for (const [, entry] of pools) {
     try { await entry.pool.close(0); } catch {}

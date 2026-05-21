@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as oracle from '../services/oracleService.js';
 import * as store from '../services/connectionStore.js';
 import { analyzePLSQL } from '../services/plsqlAnalyzer.js';
+import { analyzePlan } from '../services/planAnalyzer.js';
 
 const router = Router();
 
@@ -81,6 +82,21 @@ router.post('/:id/query', wrap(async (req, res) => {
   const { sql, schema, page, limit } = req.body;
   if (!sql) return res.status(400).json({ error: 'sql is required' });
   res.json(await oracle.executeSQL(req.params.id, sql, schema, { page, limit }));
+}));
+
+// ── 실행계획 (EXPLAIN PLAN)
+router.post('/:id/explain', wrap(async (req, res) => {
+  const { sql, schema } = req.body;
+  if (!sql) return res.status(400).json({ error: 'sql is required' });
+  const plan = await oracle.explainSQL(req.params.id, sql, schema);
+  res.json({ plan });
+}));
+
+// ── 실행계획 규칙 분석
+router.post('/:id/explain/analyze', wrap(async (req, res) => {
+  const { plan } = req.body;
+  if (!plan) return res.status(400).json({ error: 'plan is required' });
+  res.json(analyzePlan(plan));
 }));
 
 // ── PL/SQL 분석기

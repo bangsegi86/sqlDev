@@ -28,11 +28,13 @@ function initMermaid() {
 
 let chartSeq = 0;
 
-export default function MermaidChart({ chart, zoom = 1 }) {
+export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNodeClick }) {
   const containerRef = useRef(null);
+  const wrapRef = useRef(null);
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
 
+  // Render chart and attach node click handlers
   useEffect(() => {
     initMermaid();
     if (!chart || !containerRef.current) return;
@@ -40,14 +42,32 @@ export default function MermaidChart({ chart, zoom = 1 }) {
 
     mermaid.render(idRef.current, chart)
       .then(({ svg }) => {
-        if (containerRef.current) {
-          containerRef.current.innerHTML = svg;
-          // Make SVG responsive
-          const svgEl = containerRef.current.querySelector('svg');
-          if (svgEl) {
-            svgEl.style.maxWidth = 'none';
-            svgEl.style.transform = `scale(${zoom})`;
-            svgEl.style.transformOrigin = 'top left';
+        if (!containerRef.current) return;
+        containerRef.current.innerHTML = svg;
+        const svgEl = containerRef.current.querySelector('svg');
+        if (svgEl) {
+          svgEl.style.maxWidth = 'none';
+          svgEl.style.transform = `scale(${zoom})`;
+          svgEl.style.transformOrigin = 'top left';
+
+          // Attach click handlers to all flowchart nodes
+          if (onNodeClick && Object.keys(nodeCodeMap).length > 0) {
+            const nodeEls = svgEl.querySelectorAll('g.node');
+            nodeEls.forEach(el => {
+              // SVG node IDs look like: "flowchart-SEL1-5"
+              const rawId = el.id || '';
+              const parts = rawId.split('-');
+              // strip leading "flowchart" and trailing numeric suffix
+              const nodeKey = parts.slice(1, -1).join('-');
+              const code = nodeCodeMap[nodeKey];
+              if (code) {
+                el.style.cursor = 'pointer';
+                el.style.transition = 'opacity 0.15s';
+                el.addEventListener('mouseenter', () => { el.style.opacity = '0.75'; });
+                el.addEventListener('mouseleave', () => { el.style.opacity = '1'; });
+                el.addEventListener('click', () => onNodeClick(nodeKey, code));
+              }
+            });
           }
         }
       })
@@ -56,7 +76,15 @@ export default function MermaidChart({ chart, zoom = 1 }) {
       });
 
     idRef.current = `mermaid-${++chartSeq}`;
-  }, [chart, zoom]);
+  }, [chart]); // re-render only when chart changes
+
+  // Update zoom without re-rendering
+  useEffect(() => {
+    const svgEl = containerRef.current?.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.transform = `scale(${zoom})`;
+    }
+  }, [zoom]);
 
   if (error) {
     return (
@@ -68,9 +96,8 @@ export default function MermaidChart({ chart, zoom = 1 }) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      style={{ padding: 16, overflow: 'auto', minHeight: 200 }}
-    />
+    <div ref={wrapRef} style={{ padding: 16, overflow: 'auto', minHeight: 200 }}>
+      <div ref={containerRef} />
+    </div>
   );
 }

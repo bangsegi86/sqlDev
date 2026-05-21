@@ -157,10 +157,11 @@ textarea {
   border-bottom-color: var(--accent-bright);
 }
 
-.sql-table-token {
+/* SQL editor: ctrl-mode hover underline on table tokens */
+.sql-editor-pre.ctrl-mode .sql-table-token {
   cursor: pointer;
 }
-.sql-table-token:hover {
+.sql-editor-pre.ctrl-mode .sql-table-token:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
