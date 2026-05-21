@@ -78,9 +78,9 @@ router.get('/:id/sequences/:schema/:name', wrap(async (req, res) => {
 }));
 
 router.post('/:id/query', wrap(async (req, res) => {
-  const { sql, schema } = req.body;
+  const { sql, schema, page, limit } = req.body;
   if (!sql) return res.status(400).json({ error: 'sql is required' });
-  res.json(await oracle.executeSQL(req.params.id, sql, schema));
+  res.json(await oracle.executeSQL(req.params.id, sql, schema, { page, limit }));
 }));
 
 // ── PL/SQL 분석기
