@@ -1,6 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
+
+const NODE_TYPE_LABEL = {
+  SEL: '📖 SELECT', DML: '✏️ DML', CALL: '🔧 프로시저 호출', SYS: '📦 시스템 호출',
+  DYN: '⚡ 동적 SQL', CMT: '💾 트랜잭션', RBK: '↩ ROLLBACK', RET: '↪ RETURN',
+  RAISE: '⚠️ RAISE', CUR: '커서 연산', IF: '⬦ IF 조건', LOOP: '🔄 반복문',
+};
+
+function getNodeTypeLabel(key) {
+  const prefix = key.replace(/\d+$/, '');
+  return NODE_TYPE_LABEL[prefix] || key;
+}
 
 export default function AnalyzerTab({ connectionId, schema, objectType, name }) {
   const [result, setResult] = useState(null);
@@ -8,10 +19,14 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState(1);
   const [activeSection, setActiveSection] = useState('diagram');
-  const [mermaidSrc, setMermaidSrc] = useState(false);
+
+  // Code panel state
+  const [selectedNode, setSelectedNode] = useState(null); // { key, code }
+
+  const diagramWrapRef = useRef(null);
 
   const analyze = useCallback(() => {
-    setLoading(true); setError(''); setResult(null);
+    setLoading(true); setError(''); setResult(null); setSelectedNode(null);
     api.analyzeProcedure(connectionId, schema, objectType, name)
       .then(setResult)
       .catch(e => setError(e.message))
@@ -19,6 +34,20 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   }, [connectionId, schema, objectType, name]);
 
   useEffect(() => { analyze(); }, [analyze]);
+
+  // Ctrl+Wheel zoom — must use non-passive listener
+  useEffect(() => {
+    const el = diagramWrapRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoom(z => Math.min(3, Math.max(0.2, +(z + delta).toFixed(2))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [activeSection]); // re-attach when tab changes (ref may point to new DOM)
 
   if (loading) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 12, color: 'var(--text-secondary)' }}>
@@ -45,7 +74,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
           {['diagram', 'summary', 'source'].map(s => (
             <button
               key={s}
-              onClick={() => setActiveSection(s)}
+              onClick={() => { setActiveSection(s); if (s !== 'diagram') setSelectedNode(null); }}
               style={{
                 padding: '3px 10px', borderRadius: 0, border: 'none',
                 background: activeSection === s ? 'var(--accent)' : 'var(--bg-input)',
@@ -60,10 +89,11 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
         {activeSection === 'diagram' && (
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
-            <button className="btn-secondary" onClick={() => setZoom(z => Math.max(0.3, +(z - 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>−</button>
+            <button className="btn-secondary" onClick={() => setZoom(z => Math.max(0.2, +(z - 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>−</button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 40, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-            <button className="btn-secondary" onClick={() => setZoom(z => Math.min(2.5, +(z + 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>+</button>
+            <button className="btn-secondary" onClick={() => setZoom(z => Math.min(3, +(z + 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>+</button>
             <button className="btn-secondary" onClick={() => setZoom(1)} style={{ padding: '2px 6px', fontSize: 11 }}>리셋</button>
+            <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 4 }}>Ctrl+휠</span>
           </div>
         )}
 
@@ -71,17 +101,80 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
         {activeSection === 'diagram' && (
-          <div style={{ minHeight: '100%', background: 'var(--bg-primary)' }}>
-            <MermaidChart chart={result.mermaid} zoom={zoom} />
+          <>
+            {/* Diagram area */}
+            <div
+              ref={diagramWrapRef}
+              style={{ flex: 1, overflow: 'auto', background: 'var(--bg-primary)', minWidth: 0 }}
+            >
+              <MermaidChart
+                chart={result.mermaid}
+                zoom={zoom}
+                nodeCodeMap={result.nodeCodeMap || {}}
+                onNodeClick={(key, code) => setSelectedNode({ key, code })}
+              />
+            </div>
+
+            {/* Code side panel */}
+            {selectedNode && (
+              <div style={{
+                width: 340, flexShrink: 0,
+                borderLeft: '1px solid var(--border)',
+                display: 'flex', flexDirection: 'column',
+                background: 'var(--bg-panel)',
+                overflow: 'hidden',
+              }}>
+                {/* Panel header */}
+                <div style={{
+                  padding: '7px 12px', borderBottom: '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1 }}>
+                    {getNodeTypeLabel(selectedNode.key)}
+                  </span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(selectedNode.code)}
+                    style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
+                    title="복사"
+                  >📋</button>
+                  <button
+                    onClick={() => setSelectedNode(null)}
+                    style={{ fontSize: 13, padding: '2px 6px', background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', lineHeight: 1 }}
+                    title="닫기"
+                  >✕</button>
+                </div>
+
+                {/* Code content */}
+                <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+                  <pre style={{
+                    margin: 0, padding: '12px 14px',
+                    fontFamily: 'var(--code-font)', fontSize: 12,
+                    color: 'var(--text-primary)', lineHeight: 1.7,
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    background: 'transparent',
+                  }}>
+                    {selectedNode.code}
+                  </pre>
+                </div>
+
+                <div style={{ padding: '6px 12px', borderTop: '1px solid var(--border)', fontSize: 10, color: 'var(--text-dim)' }}>
+                  도형을 클릭하면 해당 코드를 표시합니다
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeSection === 'summary' && (
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <AnalysisSummary result={result} />
           </div>
         )}
 
-        {activeSection === 'summary' && <AnalysisSummary result={result} />}
-
         {activeSection === 'source' && (
-          <div style={{ padding: 12 }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Mermaid 다이어그램 소스</span>
               <button className="btn-secondary" onClick={() => navigator.clipboard.writeText(result.mermaid)} style={{ padding: '2px 8px', fontSize: 11 }}>📋 복사</button>
