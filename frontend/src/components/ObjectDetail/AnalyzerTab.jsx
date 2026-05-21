@@ -49,41 +49,15 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const handleSvgReady = useCallback((svgEl) => {
     const map = resultRef.current?.nodeCodeMap || {};
     const keys = Object.keys(map);
+    if (!keys.length) return;
 
-    console.log('[흐름도 클릭] nodeCodeMap 키:', keys);
-    console.log('[흐름도 클릭] data-id 요소:', Array.from(svgEl.querySelectorAll('[data-id]')).map(e => e.getAttribute('data-id')));
-    console.log('[흐름도 클릭] flowchart-* 요소:', Array.from(svgEl.querySelectorAll('[id^="flowchart-"]')).map(e => e.id));
-
-    if (!keys.length) {
-      console.warn('[흐름도 클릭] nodeCodeMap이 비어 있음 — 클릭 기능 비활성');
-      return;
-    }
-
-    // data-id 방식 (Mermaid v10/v11)
-    svgEl.querySelectorAll('[data-id]').forEach(el => {
-      const id = el.getAttribute('data-id');
-      if (!map[id]) return;
+    // Mermaid v11: node elements have id = nodeCodeMap key directly (e.g. id="LOOP1")
+    keys.forEach(key => {
+      const el = svgEl.querySelector(`[id="${key}"]`);
+      if (!el) return;
       el.style.cursor = 'pointer';
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        console.log('[흐름도 클릭] 클릭됨 data-id:', id);
-        setSelectedNode({ key: id, code: map[id] });
-      });
-    });
-
-    // id="flowchart-SEL1-3" 방식 (fallback)
-    svgEl.querySelectorAll('[id^="flowchart-"]').forEach(el => {
-      const inner = el.id.slice('flowchart-'.length);
-      const lastDash = inner.lastIndexOf('-');
-      if (lastDash <= 0) return;
-      if (!/^\d+$/.test(inner.slice(lastDash + 1))) return;
-      const key = inner.slice(0, lastDash);
-      if (!map[key] || el.dataset.handled) return;
-      el.dataset.handled = '1';
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        console.log('[흐름도 클릭] 클릭됨 id:', el.id, '→ key:', key);
         setSelectedNode({ key, code: map[key] });
       });
     });
