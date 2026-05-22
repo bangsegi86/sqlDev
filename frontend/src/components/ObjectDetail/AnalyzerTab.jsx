@@ -359,7 +359,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
 // ── Foldable code viewer ───────────────────────────────────────────────────────
 
-const FOLD_TRIGGER = /\b(THEN|LOOP|ELSE|EXCEPTION|BEGIN)\s*$/i;
+const FOLD_TRIGGER = /(\b(THEN|LOOP|ELSE|EXCEPTION|BEGIN)\s*$|^\s*(SELECT|INSERT|UPDATE|DELETE|MERGE)\b)/i;
 
 function getIndentLen(line) {
   const m = line.match(/^(\s*)/);
