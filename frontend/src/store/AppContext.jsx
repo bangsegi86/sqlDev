@@ -74,6 +74,17 @@ function reducer(state, action) {
       }
       return { ...state, tabs, activeTabId };
     }
+    case 'CLOSE_ALL_TABS':
+      return { ...state, tabs: [], activeTabId: null };
+    case 'CLOSE_TABS_TO_RIGHT': {
+      const idx = state.tabs.findIndex(t => t.id === action.payload);
+      if (idx < 0) return state;
+      const tabs = state.tabs.slice(0, idx + 1);
+      const activeTabId = tabs.find(t => t.id === state.activeTabId)
+        ? state.activeTabId
+        : tabs[tabs.length - 1]?.id || null;
+      return { ...state, tabs, activeTabId };
+    }
     case 'SET_ACTIVE_TAB':
       return { ...state, activeTabId: action.payload };
     case 'UPDATE_TAB_CONTENT':

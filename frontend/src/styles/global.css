@@ -166,6 +166,10 @@ textarea {
   text-underline-offset: 2px;
 }
 
+/* Hide scrollbar (tab strip) */
+.hide-scrollbar { scrollbar-width: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Flowchart: clickable node highlight */
 .flow-clickable { cursor: pointer !important; }
 .flow-clickable:hover { opacity: 0.75; }
