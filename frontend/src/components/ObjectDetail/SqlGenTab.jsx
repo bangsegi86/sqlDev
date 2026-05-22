@@ -89,16 +89,28 @@ function CopyBtn({ text }) {
 
 // ── SQL generators ──────────────────────────────────────────────────────────────
 
-function bindVar(name) { return ':' + name; }
+function bindVar(name) { return ':' + name.toLowerCase(); }
+
+function typeHint(col) {
+  const dt = col.DATA_TYPE || '';
+  const prec = col.DATA_PRECISION != null && col.DATA_SCALE != null
+    ? `(${col.DATA_PRECISION},${col.DATA_SCALE})`
+    : col.DATA_LENGTH ? `(${col.DATA_LENGTH})` : '';
+  const nullable = col.NULLABLE === 'N' ? ' NOT NULL' : '';
+  return `-- ${dt}${prec}${nullable}`;
+}
+
+function pad(name, maxLen) { return name.padEnd(maxLen); }
 
 function genInsert(fullName, cols) {
   if (!cols.length) return `INSERT INTO ${fullName} (...) VALUES (...);`;
 
+  const maxLen = Math.max(...cols.map(c => c.COLUMN_NAME.length));
   const colLines = cols.map((c, i) =>
     `  ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
   ).join('\n');
   const valLines = cols.map((c, i) =>
-    `  ${i === 0 ? ' ' : ','} ${bindVar(c.COLUMN_NAME)}`
+    `  ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxLen + 1)} ${typeHint(c)}`
   ).join('\n');
 
   return [
@@ -118,7 +130,7 @@ function genUpdate(fullName, pkCols, nonPkCols, allCols) {
   const maxSet = Math.max(...setCols.map(c => c.COLUMN_NAME.length));
 
   const setLines = setCols.map((c, i) =>
-    `${i === 0 ? '   SET' : '      ,'} ${c.COLUMN_NAME.padEnd(maxSet)} = ${bindVar(c.COLUMN_NAME)}`
+    `${i === 0 ? '   SET' : '      ,'} ${pad(c.COLUMN_NAME, maxSet)} = ${pad(bindVar(c.COLUMN_NAME), maxSet + 1)} ${typeHint(c)}`
   ).join('\n');
 
   if (!pkCols.length) {
@@ -132,7 +144,7 @@ function genUpdate(fullName, pkCols, nonPkCols, allCols) {
 
   const maxWhere = Math.max(...pkCols.map(c => c.COLUMN_NAME.length));
   const whereLines = pkCols.map((c, i) =>
-    `${i === 0 ? ' WHERE' : '   AND'} ${c.COLUMN_NAME.padEnd(maxWhere)} = ${bindVar(c.COLUMN_NAME)}`
+    `${i === 0 ? ' WHERE' : '   AND'} ${pad(c.COLUMN_NAME, maxWhere)} = ${bindVar(c.COLUMN_NAME)}`
   ).join('\n');
 
   return [
@@ -161,21 +173,26 @@ function genMerge(fullName, pkCols, nonPkCols, allCols) {
     ].join('\n');
   }
 
+  // ON: PK 조건
+  const maxPk = Math.max(...pkCols.map(c => c.COLUMN_NAME.length));
   const onLines = pkCols.map((c, i) =>
-    `       ${i === 0 ? '   ' : 'AND '}${T}.${c.COLUMN_NAME} = ${bindVar(c.COLUMN_NAME)}`
+    `       ${i === 0 ? '   ' : 'AND '}${T}.${pad(c.COLUMN_NAME, maxPk)} = ${bindVar(c.COLUMN_NAME)}`
   ).join('\n');
 
+  // UPDATE SET: PK 제외 전체 컬럼
   const updCols = nonPkCols.length > 0 ? nonPkCols : allCols;
   const maxUpd = Math.max(...updCols.map(c => c.COLUMN_NAME.length));
   const updLines = updCols.map((c, i) =>
-    `          ${i === 0 ? 'SET' : '  ,'} ${T}.${c.COLUMN_NAME.padEnd(maxUpd)} = ${bindVar(c.COLUMN_NAME)}`
+    `          ${i === 0 ? 'SET' : '  ,'} ${T}.${pad(c.COLUMN_NAME, maxUpd)} = ${pad(bindVar(c.COLUMN_NAME), maxUpd + 1)} ${typeHint(c)}`
   ).join('\n');
 
-  const insCols = allCols.map((c, i) =>
+  // INSERT: 전체 컬럼
+  const maxIns = Math.max(...allCols.map(c => c.COLUMN_NAME.length));
+  const insColLines = allCols.map((c, i) =>
     `          ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
   ).join('\n');
-  const insVals = allCols.map((c, i) =>
-    `          ${i === 0 ? ' ' : ','} ${bindVar(c.COLUMN_NAME)}`
+  const insValLines = allCols.map((c, i) =>
+    `          ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxIns + 1)} ${typeHint(c)}`
   ).join('\n');
 
   return [
@@ -190,11 +207,11 @@ function genMerge(fullName, pkCols, nonPkCols, allCols) {
     ` WHEN NOT MATCHED THEN`,
     `   INSERT`,
     `   (`,
-    insCols,
+    insColLines,
     `   )`,
     `   VALUES`,
     `   (`,
-    insVals,
+    insValLines,
     `   )`,
     `;`,
   ].join('\n');
