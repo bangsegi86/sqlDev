@@ -339,6 +339,376 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Column Reorder Script Generator
+// Oracle does not support in-place column reordering;
+// we must recreate the table with the desired column order.
+// ──────────────────────────────────────────────────────────────
+
+function buildColTypePart(col) {
+  const dt = col.DATA_TYPE;
+  if (['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR'].includes(dt))
+    return `${dt}(${col.DATA_LENGTH})`;
+  if (dt === 'NUMBER')
+    return col.DATA_PRECISION != null
+      ? `NUMBER(${col.DATA_PRECISION}${col.DATA_SCALE ? ',' + col.DATA_SCALE : ''})`
+      : 'NUMBER';
+  if (dt === 'FLOAT')
+    return col.DATA_PRECISION != null ? `FLOAT(${col.DATA_PRECISION})` : 'FLOAT';
+  if (dt === 'RAW')
+    return `RAW(${col.DATA_LENGTH})`;
+  if (dt.startsWith('TIMESTAMP') && col.DATA_SCALE != null && col.DATA_SCALE !== 6)
+    return `TIMESTAMP(${col.DATA_SCALE})`;
+  return dt;
+}
+
+function buildColDef(col) {
+  const typePart = buildColTypePart(col);
+  const defPart  = col.DATA_DEFAULT != null ? ` DEFAULT ${col.DATA_DEFAULT.trim()}` : '';
+  const nullPart = col.NULLABLE === 'N' ? ' NOT NULL' : '';
+  return `  ${col.COLUMN_NAME.padEnd(32)}${typePart}${defPart}${nullPart}`;
+}
+
+export async function generateColumnReorderScript(id, schema, tableName, newColumnOrder) {
+  const tmpName = `${tableName}_REORDER_TMP`;
+
+  // ── Parallel metadata queries ──────────────────────────────
+  const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult] = await Promise.all([
+    execute(id,
+      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
+       FROM ALL_TAB_COLUMNS
+       WHERE OWNER = :schema AND TABLE_NAME = :table
+       ORDER BY COLUMN_ID`,
+      { schema, table: tableName }),
+
+    execute(id,
+      `SELECT c.CONSTRAINT_NAME, c.CONSTRAINT_TYPE, c.STATUS, c.GENERATED,
+              c.R_OWNER, c.DELETE_RULE,
+              rc.TABLE_NAME AS R_TABLE_NAME,
+              cc.COLUMN_NAME, cc.POSITION,
+              rcc.COLUMN_NAME AS R_COLUMN_NAME
+       FROM ALL_CONSTRAINTS c
+       JOIN ALL_CONS_COLUMNS cc
+         ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME AND c.OWNER = cc.OWNER
+       LEFT JOIN ALL_CONSTRAINTS rc
+         ON rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND rc.OWNER = c.R_OWNER
+       LEFT JOIN ALL_CONS_COLUMNS rcc
+         ON rcc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND rcc.OWNER = c.R_OWNER
+            AND rcc.POSITION = cc.POSITION
+       WHERE c.OWNER = :schema AND c.TABLE_NAME = :table
+         AND c.CONSTRAINT_TYPE IN ('P','U','R','C')
+       ORDER BY c.CONSTRAINT_TYPE, c.CONSTRAINT_NAME, cc.POSITION`,
+      { schema, table: tableName }),
+
+    execute(id,
+      `SELECT c.OWNER, c.TABLE_NAME, c.CONSTRAINT_NAME, c.STATUS, c.DELETE_RULE,
+              cc.COLUMN_NAME, cc.POSITION,
+              rcc.COLUMN_NAME AS R_COLUMN_NAME
+       FROM ALL_CONSTRAINTS c
+       JOIN ALL_CONS_COLUMNS cc
+         ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME AND c.OWNER = cc.OWNER
+       JOIN ALL_CONSTRAINTS rc
+         ON rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND rc.OWNER = c.R_OWNER
+       JOIN ALL_CONS_COLUMNS rcc
+         ON rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME AND rcc.OWNER = rc.OWNER
+            AND rcc.POSITION = cc.POSITION
+       WHERE c.CONSTRAINT_TYPE = 'R'
+         AND rc.OWNER = :schema AND rc.TABLE_NAME = :table
+         AND (c.OWNER != :schema OR c.TABLE_NAME != :table)
+       ORDER BY c.OWNER, c.TABLE_NAME, c.CONSTRAINT_NAME, cc.POSITION`,
+      { schema, table: tableName }),
+
+    execute(id,
+      `SELECT i.INDEX_NAME, i.INDEX_TYPE, i.UNIQUENESS,
+              ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND
+       FROM ALL_INDEXES i
+       JOIN ALL_IND_COLUMNS ic
+         ON i.INDEX_NAME = ic.INDEX_NAME AND i.OWNER = ic.INDEX_OWNER
+       WHERE i.OWNER = :schema AND i.TABLE_NAME = :table
+         AND NOT EXISTS (
+           SELECT 1 FROM ALL_CONSTRAINTS con
+           WHERE con.OWNER = i.OWNER AND con.INDEX_NAME = i.INDEX_NAME
+         )
+       ORDER BY i.INDEX_NAME, ic.COLUMN_POSITION`,
+      { schema, table: tableName }),
+
+    execute(id,
+      `SELECT COLUMN_NAME, COMMENTS FROM ALL_COL_COMMENTS
+       WHERE OWNER = :schema AND TABLE_NAME = :table AND COMMENTS IS NOT NULL`,
+      { schema, table: tableName }),
+
+    execute(id,
+      `SELECT GRANTEE, PRIVILEGE, GRANTABLE FROM ALL_TAB_PRIVS
+       WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
+       ORDER BY GRANTEE, PRIVILEGE`,
+      { schema, table: tableName }).catch(() => ({ rows: [] })),
+  ]);
+
+  // Try to get CHECK constraint conditions (LONG type in old Oracle; wrap with try-catch)
+  const checkConditions = {};
+  try {
+    const ckr = await execute(id,
+      `SELECT CONSTRAINT_NAME, TO_CHAR(SEARCH_CONDITION) AS COND
+       FROM ALL_CONSTRAINTS
+       WHERE OWNER = :schema AND TABLE_NAME = :table
+         AND CONSTRAINT_TYPE = 'C' AND GENERATED = 'USER NAME'`,
+      { schema, table: tableName });
+    for (const r of ckr.rows) if (r.COND) checkConditions[r.CONSTRAINT_NAME] = r.COND;
+  } catch { /* ignore */ }
+
+  // ── Group constraint rows by name ──────────────────────────
+  const conMap = {};
+  for (const row of conResult.rows) {
+    if (!conMap[row.CONSTRAINT_NAME]) {
+      conMap[row.CONSTRAINT_NAME] = {
+        type: row.CONSTRAINT_TYPE,
+        status: row.STATUS,
+        generated: row.GENERATED,
+        r_owner: row.R_OWNER,
+        r_table: row.R_TABLE_NAME,
+        delete_rule: row.DELETE_RULE,
+        cols: [],
+        r_cols: [],
+      };
+    }
+    conMap[row.CONSTRAINT_NAME].cols.push(row.COLUMN_NAME);
+    if (row.R_COLUMN_NAME) conMap[row.CONSTRAINT_NAME].r_cols.push(row.R_COLUMN_NAME);
+  }
+
+  // Group ref-FK rows by key
+  const refFkMap = {};
+  for (const row of refFkResult.rows) {
+    const key = `${row.OWNER}.${row.TABLE_NAME}.${row.CONSTRAINT_NAME}`;
+    if (!refFkMap[key]) {
+      refFkMap[key] = {
+        owner: row.OWNER, table_name: row.TABLE_NAME, constraint_name: row.CONSTRAINT_NAME,
+        status: row.STATUS, delete_rule: row.DELETE_RULE, cols: [], r_cols: [],
+      };
+    }
+    refFkMap[key].cols.push(row.COLUMN_NAME);
+    refFkMap[key].r_cols.push(row.R_COLUMN_NAME);
+  }
+
+  // Group index rows by name
+  const idxMap = {};
+  for (const row of idxResult.rows) {
+    if (!idxMap[row.INDEX_NAME])
+      idxMap[row.INDEX_NAME] = { unique: row.UNIQUENESS === 'UNIQUE', cols: [], descends: [] };
+    idxMap[row.INDEX_NAME].cols.push(row.COLUMN_NAME);
+    idxMap[row.INDEX_NAME].descends.push(row.DESCEND);
+  }
+
+  // Column definition map
+  const colDefs = Object.fromEntries(colResult.rows.map(c => [c.COLUMN_NAME, c]));
+
+  // Validate newColumnOrder contains all columns
+  const allCols = colResult.rows.map(c => c.COLUMN_NAME);
+  const orderedCols = newColumnOrder.filter(c => allCols.includes(c));
+  // Add any missing columns at the end (defensive)
+  for (const c of allCols) if (!orderedCols.includes(c)) orderedCols.push(c);
+
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const qSchema = `"${schema}"`;
+  const qTable  = `"${tableName}"`;
+  const qTmp    = `"${tmpName}"`;
+
+  const lines = [];
+  const ln  = s => lines.push(s);
+  const sep = () => ln('');
+
+  // ── Header ────────────────────────────────────────────────
+  ln(`-- ${'='.repeat(60)}`);
+  ln(`-- 컬럼 순서 변경 마이그레이션 스크립트`);
+  ln(`-- 대상 테이블 : ${schema}.${tableName}`);
+  ln(`-- 생성 시각   : ${now}`);
+  ln(`-- ${'='.repeat(60)}`);
+  ln(`-- ⚠  주의: 테이블 재생성 방식입니다.`);
+  ln(`--    실행 전 반드시 전체 백업을 수행하세요.`);
+  ln(`-- ${'='.repeat(60)}`);
+
+  // ── Step 1: Drop referencing FKs from other tables ────────
+  const refFkEntries = Object.values(refFkMap);
+  if (refFkEntries.length > 0) {
+    sep();
+    ln(`-- [Step 1] 이 테이블을 참조하는 외래키(FK) 삭제`);
+    for (const fk of refFkEntries) {
+      ln(`ALTER TABLE "${fk.owner}"."${fk.table_name}" DROP CONSTRAINT "${fk.constraint_name}";`);
+    }
+  }
+
+  // ── Step 2: Create temp table ─────────────────────────────
+  sep();
+  ln(`-- [Step 2] 임시 테이블 생성 (새 컬럼 순서)`);
+  ln(`CREATE TABLE ${qSchema}.${qTmp} (`);
+  const colLines = orderedCols.map((cname, idx) => {
+    const def = buildColDef(colDefs[cname]);
+    return def + (idx < orderedCols.length - 1 ? ',' : '');
+  });
+  for (const cl of colLines) ln(cl);
+  ln(`);`);
+
+  // ── Step 3: Copy data ─────────────────────────────────────
+  sep();
+  ln(`-- [Step 3] 데이터 복사`);
+  const colList = orderedCols.map(c => `"${c}"`).join(', ');
+  ln(`INSERT /*+ APPEND */ INTO ${qSchema}.${qTmp} (${colList})`);
+  ln(`  SELECT ${colList} FROM ${qSchema}.${qTable};`);
+  ln(`COMMIT;`);
+
+  // ── Step 4: Drop original table ───────────────────────────
+  sep();
+  ln(`-- [Step 4] 원본 테이블 삭제`);
+  ln(`DROP TABLE ${qSchema}.${qTable} PURGE;`);
+
+  // ── Step 5: Rename temp table ─────────────────────────────
+  sep();
+  ln(`-- [Step 5] 임시 테이블 이름 변경`);
+  ln(`ALTER TABLE ${qSchema}.${qTmp} RENAME TO "${tableName}";`);
+
+  // ── Step 6: Recreate PK ───────────────────────────────────
+  const pkEntries = Object.entries(conMap).filter(([, v]) => v.type === 'P');
+  if (pkEntries.length > 0) {
+    sep();
+    ln(`-- [Step 6] PRIMARY KEY 재생성`);
+    for (const [cname, con] of pkEntries) {
+      const cols = con.cols.map(c => `"${c}"`).join(', ');
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" PRIMARY KEY (${cols});`);
+    }
+  }
+
+  // ── Step 7: Recreate UNIQUE constraints ───────────────────
+  const ukEntries = Object.entries(conMap).filter(([, v]) => v.type === 'U');
+  if (ukEntries.length > 0) {
+    sep();
+    ln(`-- [Step 7] UNIQUE 제약조건 재생성`);
+    for (const [cname, con] of ukEntries) {
+      const cols = con.cols.map(c => `"${c}"`).join(', ');
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" UNIQUE (${cols});`);
+    }
+  }
+
+  // ── Step 8: Recreate CHECK constraints ────────────────────
+  const ckEntries = Object.entries(conMap).filter(([cname, v]) =>
+    v.type === 'C' && v.generated !== 'GENERATED NAME' && checkConditions[cname]);
+  if (ckEntries.length > 0) {
+    sep();
+    ln(`-- [Step 8] CHECK 제약조건 재생성`);
+    for (const [cname] of ckEntries) {
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" CHECK (${checkConditions[cname]});`);
+    }
+  }
+
+  // ── Step 9: Recreate FK constraints on this table ─────────
+  const fkEntries = Object.entries(conMap).filter(([, v]) => v.type === 'R');
+  if (fkEntries.length > 0) {
+    sep();
+    ln(`-- [Step 9] 외래키(FK) 재생성`);
+    for (const [cname, con] of fkEntries) {
+      const localCols = con.cols.map(c => `"${c}"`).join(', ');
+      const refCols   = con.r_cols.map(c => `"${c}"`).join(', ');
+      const refOwner  = con.r_owner || schema;
+      const onDelete  = con.delete_rule && con.delete_rule !== 'NO ACTION'
+        ? ` ON DELETE ${con.delete_rule}` : '';
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}"`);
+      ln(`  FOREIGN KEY (${localCols}) REFERENCES "${refOwner}"."${con.r_table}" (${refCols})${onDelete};`);
+    }
+  }
+
+  // ── Step 10: Recreate non-constraint indexes ──────────────
+  if (Object.keys(idxMap).length > 0) {
+    sep();
+    ln(`-- [Step 10] 인덱스 재생성`);
+    for (const [idxName, idx] of Object.entries(idxMap)) {
+      const colParts = idx.cols.map((c, i) =>
+        `"${c}"${idx.descends[i] === 'DESC' ? ' DESC' : ''}`).join(', ');
+      const unique = idx.unique ? 'UNIQUE ' : '';
+      ln(`CREATE ${unique}INDEX "${schema}"."${idxName}" ON ${qSchema}.${qTable} (${colParts});`);
+    }
+  }
+
+  // ── Step 11: Recreate referencing FKs from other tables ───
+  if (refFkEntries.length > 0) {
+    sep();
+    ln(`-- [Step 11] 이 테이블을 참조하는 외래키(FK) 재생성`);
+    for (const fk of refFkEntries) {
+      const localCols = fk.cols.map(c => `"${c}"`).join(', ');
+      const refCols   = fk.r_cols.map(c => `"${c}"`).join(', ');
+      const onDelete  = fk.delete_rule && fk.delete_rule !== 'NO ACTION'
+        ? ` ON DELETE ${fk.delete_rule}` : '';
+      ln(`ALTER TABLE "${fk.owner}"."${fk.table_name}" ADD CONSTRAINT "${fk.constraint_name}"`);
+      ln(`  FOREIGN KEY (${localCols}) REFERENCES ${qSchema}.${qTable} (${refCols})${onDelete};`);
+    }
+  }
+
+  // ── Step 12: Column comments ──────────────────────────────
+  if (cmtResult.rows.length > 0) {
+    sep();
+    ln(`-- [Step 12] 컬럼 주석 재생성`);
+    for (const r of cmtResult.rows) {
+      const escaped = (r.COMMENTS || '').replace(/'/g, "''");
+      ln(`COMMENT ON COLUMN ${qSchema}.${qTable}."${r.COLUMN_NAME}" IS '${escaped}';`);
+    }
+  }
+
+  // ── Step 13: Grants ───────────────────────────────────────
+  if (grantResult.rows.length > 0) {
+    sep();
+    ln(`-- [Step 13] 권한 재생성`);
+    for (const r of grantResult.rows) {
+      const withGrant = r.GRANTABLE === 'YES' ? ' WITH GRANT OPTION' : '';
+      ln(`GRANT ${r.PRIVILEGE} ON ${qSchema}.${qTable} TO "${r.GRANTEE}"${withGrant};`);
+    }
+  }
+
+  sep();
+  ln(`-- 완료`);
+
+  return lines.join('\n');
+}
+
+// Execute a list of SQL statements sequentially, stopping on first error
+export async function executeScriptStatements(id, statements, schema) {
+  const entry = pools.get(id);
+  if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+
+  const results = [];
+  let conn;
+  try {
+    if (entry.type === 'jdbc') {
+      if (schema) await jdbcExecute(id, `ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`, {}).catch(() => {});
+      for (let i = 0; i < statements.length; i++) {
+        const stmt = statements[i].trim();
+        if (!stmt) continue;
+        try {
+          await jdbcExecute(id, stmt, {});
+          results.push({ index: i, ok: true });
+        } catch (e) {
+          results.push({ index: i, ok: false, error: e.message, statement: stmt });
+          return { success: false, executedCount: i, results };
+        }
+      }
+      return { success: true, executedCount: statements.length, results };
+    }
+
+    conn = await entry.pool.getConnection();
+    if (schema) await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`).catch(() => {});
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i].trim();
+      if (!stmt) continue;
+      try {
+        await conn.execute(stmt);
+        results.push({ index: i, ok: true });
+      } catch (e) {
+        results.push({ index: i, ok: false, error: e.message, statement: stmt });
+        return { success: false, executedCount: i, results };
+      }
+    }
+    return { success: true, executedCount: statements.length, results };
+  } finally {
+    if (conn) await conn.close().catch(() => {});
+  }
+}
+
 export async function explainSQL(id, sql, schema) {
   const entry = pools.get(id);
   if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });

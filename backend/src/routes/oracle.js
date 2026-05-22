@@ -84,6 +84,25 @@ router.post('/:id/query', wrap(async (req, res) => {
   res.json(await oracle.executeSQL(req.params.id, sql, schema, { page, limit }));
 }));
 
+// ── 컬럼 순서 변경 스크립트 생성
+router.post('/:id/tables/:schema/:name/reorder-script', wrap(async (req, res) => {
+  const { columnOrder } = req.body;
+  if (!Array.isArray(columnOrder) || columnOrder.length === 0)
+    return res.status(400).json({ error: 'columnOrder array is required' });
+  const script = await oracle.generateColumnReorderScript(
+    req.params.id, req.params.schema, req.params.name, columnOrder
+  );
+  res.json({ script });
+}));
+
+// ── 스크립트 일괄 실행 (여러 문장 순차 실행)
+router.post('/:id/execute-script', wrap(async (req, res) => {
+  const { statements, schema } = req.body;
+  if (!Array.isArray(statements) || statements.length === 0)
+    return res.status(400).json({ error: 'statements array is required' });
+  res.json(await oracle.executeScriptStatements(req.params.id, statements, schema));
+}));
+
 // ── 실행계획 (EXPLAIN PLAN)
 router.post('/:id/explain', wrap(async (req, res) => {
   const { sql, schema } = req.body;

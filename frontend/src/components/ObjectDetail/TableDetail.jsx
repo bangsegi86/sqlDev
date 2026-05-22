@@ -40,7 +40,7 @@ export default function TableDetail({ tab }) {
       </div>
 
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {activeTab === 'columns' && <ColumnsTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
+        {activeTab === 'columns' && <ColumnsTab connectionId={tab.connectionId} schema={schema} tableName={name} objectType={objectType} />}
         {activeTab === 'data' && <DataTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'ddl' && <DdlTab connectionId={tab.connectionId} schema={schema} name={name} objectType={objectType} />}
         {activeTab === 'references' && <ReferencesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}

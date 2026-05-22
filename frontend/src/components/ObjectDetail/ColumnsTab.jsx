@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from '../Common/ColContextMenu.jsx';
+import ColumnReorderModal from './ColumnReorderModal.jsx';
 
 const HEADERS = ['#', 'Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key', 'Comment'];
 
-export default function ColumnsTab({ connectionId, schema, tableName }) {
+export default function ColumnsTab({ connectionId, schema, tableName, objectType }) {
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState('');
   const containerRef = useRef(null);
 
@@ -47,7 +49,19 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
   const w = h => colWidths[h] ? { width: colWidths[h], minWidth: colWidths[h] } : {};
 
   return (
-    <div ref={containerRef} style={{ overflow: 'auto', flex: 1 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+      {/* Toolbar — only show reorder button for TABLE (not VIEW) */}
+      {objectType !== 'VIEW' && columns.length > 0 && (
+        <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6 }}>
+          <button
+            className="btn-secondary"
+            style={{ padding: '2px 8px', fontSize: 11 }}
+            onClick={() => setReorderOpen(true)}
+          >⇅ 컬럼 순서 변경</button>
+        </div>
+      )}
+
+      <div ref={containerRef} style={{ overflow: 'auto', flex: 1 }}>
       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, tableLayout: hasWidths ? 'fixed' : 'auto' }}>
         {hasWidths && (
           <colgroup>
@@ -106,6 +120,17 @@ export default function ColumnsTab({ connectionId, schema, tableName }) {
         onReset={resetWidths}
         hasWidths={hasWidths}
       />
+      </div>
+
+      {reorderOpen && (
+        <ColumnReorderModal
+          connectionId={connectionId}
+          schema={schema}
+          tableName={tableName}
+          columns={columns}
+          onClose={() => setReorderOpen(false)}
+        />
+      )}
     </div>
   );
 }

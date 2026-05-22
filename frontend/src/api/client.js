@@ -41,6 +41,13 @@ export const api = {
   analyzeExplain: (id, plan) => request(`/oracle/${id}/explain/analyze`, { method: 'POST', body: { plan } }),
   analyzeProcedure: (id, schema, type, name) => request(`/oracle/${id}/analyze/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
 
+  generateReorderScript: (id, schema, table, columnOrder) =>
+    request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/reorder-script`, {
+      method: 'POST', body: { columnOrder },
+    }),
+  executeScript: (id, statements, schema) =>
+    request(`/oracle/${id}/execute-script`, { method: 'POST', body: { statements, schema } }),
+
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
   getJdbcStatus: () => request('/settings/jdbc-status'),
