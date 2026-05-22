@@ -166,6 +166,17 @@ textarea {
   text-underline-offset: 2px;
 }
 
+/* Source view: ctrl-mode hover underline on navigable tokens */
+.sql-source-pre.ctrl-mode .sql-table-token,
+.sql-source-pre.ctrl-mode .sql-callable-token {
+  cursor: pointer;
+}
+.sql-source-pre.ctrl-mode .sql-table-token:hover,
+.sql-source-pre.ctrl-mode .sql-callable-token:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Hide scrollbar (tab strip) */
 .hide-scrollbar { scrollbar-width: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }

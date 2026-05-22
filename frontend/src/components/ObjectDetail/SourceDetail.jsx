@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { api } from '../../api/client.js';
 import { useApp, openTab } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
@@ -8,10 +8,12 @@ import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/
 import { useCopy } from '../../utils/clipboard.js';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
+const CALLABLE_TYPES = ['PROCEDURE', 'FUNCTION'];
 
 export default function SourceDetail({ tab }) {
   const { dispatch, state } = useApp();
   const { schema, objectType, name } = tab.content;
+  const connId = tab.connectionId;
   const canAnalyze = ANALYZABLE.includes(objectType);
   const [activeTab, setActiveTab] = useState(tab.content.activeTab || (canAnalyze ? 'analyzer' : 'source'));
   const [source, setSource] = useState('');
@@ -22,35 +24,93 @@ export default function SourceDetail({ tab }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Ctrl+click navigation state
+  const [acItems, setAcItems] = useState([]);
+  const acSchemaRef = useRef(null);
+  const ctrlHeldRef = useRef(false);
+  const preRef = useRef(null);
+
   const highlightedLines = useMemo(() => {
     const code = isFormatted ? formattedSource : source;
     if (!code) return null;
     return splitHighlightedLines(highlightTokens(code));
   }, [source, formattedSource, isFormatted]);
 
+  // Set of callable names for underline rendering
+  const navigableCallableNames = useMemo(
+    () => new Set(acItems.filter(it => CALLABLE_TYPES.includes(it.type)).map(it => it.name.toUpperCase())),
+    [acItems]
+  );
+
+  // Load object list for schema (PROCEDURE + FUNCTION only needed here)
+  const loadAcItems = useCallback(async () => {
+    if (!connId || !schema) return [];
+    if (acSchemaRef.current === `${connId}:${schema}` && acItems.length > 0) return acItems;
+    try {
+      const results = await Promise.all(
+        CALLABLE_TYPES.map(type =>
+          api.getObjects(connId, schema, type)
+            .then(names => names.map(n => ({ name: n, type })))
+            .catch(() => [])
+        )
+      );
+      const flat = results.flat();
+      acSchemaRef.current = `${connId}:${schema}`;
+      setAcItems(flat);
+      return flat;
+    } catch { return []; }
+  }, [connId, schema]);
+
+  // Ctrl key tracking — toggles ctrl-mode class on <pre>
+  useEffect(() => {
+    function enableCtrl() {
+      if (ctrlHeldRef.current) return;
+      ctrlHeldRef.current = true;
+      if (preRef.current) preRef.current.classList.add('ctrl-mode');
+      if (acItems.length === 0) loadAcItems();
+    }
+    function disableCtrl() {
+      ctrlHeldRef.current = false;
+      if (preRef.current) preRef.current.classList.remove('ctrl-mode');
+    }
+    function onKeyDown(e) { if (e.key === 'Control') enableCtrl(); }
+    function onKeyUp(e) { if (e.key === 'Control') disableCtrl(); }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', disableCtrl);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', disableCtrl);
+    };
+  }, [acItems, loadAcItems]);
+
   useEffect(() => {
     if (activeTab === 'source' && !source) {
       setLoading(true); setError('');
-      api.getSource(tab.connectionId, schema, objectType, name)
+      api.getSource(connId, schema, objectType, name)
         .then(r => setSource(r.source))
         .catch(e => setError(e.message))
         .finally(() => setLoading(false));
     }
     if (activeTab === 'properties' && !props) {
-      api.getObjectProperties(tab.connectionId, schema, objectType, name)
+      api.getObjectProperties(connId, schema, objectType, name)
         .then(setProps)
         .catch(() => {});
     }
   }, [activeTab]);
 
-  function navigateToTable(tableName, schemaName) {
+  function navigateToObject(schemaName, objectName, objectType) {
     const s = schemaName || schema;
-    if (!s || !tableName) return;
-    const id = `TABLE-${tab.connectionId}-${s}-${tableName}`;
+    if (!s || !objectName) return;
+    const tabType = ['TABLE', 'VIEW'].includes(objectType) ? 'table'
+      : objectType === 'SEQUENCE' ? 'sequence'
+      : objectType === 'SYNONYM' ? 'synonym' : 'source';
     openTab(dispatch, state, {
-      id, type: 'table', title: tableName,
-      connectionId: tab.connectionId,
-      content: { schema: s, objectType: 'TABLE', name: tableName },
+      id: `${objectType}-${connId}-${s}-${objectName}`,
+      type: tabType, title: objectName,
+      connectionId: connId,
+      content: { schema: s, objectType, name: objectName, activeTab: tabType === 'table' ? 'columns' : 'source' },
     });
   }
 
@@ -69,7 +129,7 @@ export default function SourceDetail({ tab }) {
     if (next?.tok.value === '.') {
       const after = skipWs(lineToks, next.idx, 1);
       if (after?.tok.color === SQL_COLORS.table) {
-        navigateToTable(after.tok.value.toUpperCase(), tok.value.toUpperCase());
+        navigateToObject(tok.value.toUpperCase(), after.tok.value.toUpperCase(), 'TABLE');
         return;
       }
     }
@@ -79,7 +139,16 @@ export default function SourceDetail({ tab }) {
       const before = skipWs(lineToks, prev.idx, -1);
       if (before?.tok.color === SQL_COLORS.table) schemaName = before.tok.value.toUpperCase();
     }
-    navigateToTable(tok.value.toUpperCase(), schemaName);
+    navigateToObject(schemaName, tok.value.toUpperCase(), 'TABLE');
+  }
+
+  async function handleCallableClick(e, tokValue) {
+    if (!e.ctrlKey) return;
+    const up = tokValue.toUpperCase();
+    let items = acItems;
+    if (items.length === 0) items = await loadAcItems();
+    const found = items.find(it => it.name.toUpperCase() === up);
+    if (found) navigateToObject(schema, found.name, found.type);
   }
 
   function switchTab(t) {
@@ -118,7 +187,7 @@ export default function SourceDetail({ tab }) {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'analyzer' && canAnalyze && (
           <AnalyzerTab
-            connectionId={tab.connectionId}
+            connectionId={connId}
             schema={schema}
             objectType={objectType}
             name={name}
@@ -127,7 +196,7 @@ export default function SourceDetail({ tab }) {
 
         {activeTab === 'explain' && canAnalyze && (
           <ExplainTab
-            connectionId={tab.connectionId}
+            connectionId={connId}
             schema={schema}
             objectType={objectType}
             name={name}
@@ -163,7 +232,11 @@ export default function SourceDetail({ tab }) {
             {error && <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>}
             {!loading && !error && (
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                <pre style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}>
+                <pre
+                  ref={preRef}
+                  className="sql-source-pre"
+                  style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
+                >
                   {(highlightedLines || []).map((lineToks, i) => (
                     <div key={i} style={{ display: 'flex' }}>
                       <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
@@ -178,6 +251,18 @@ export default function SourceDetail({ tab }) {
                                 style={{ color: tok.color }}
                                 title="Ctrl+Click: 테이블 상세 열기"
                                 onClick={e => handleTableClick(e, tok, j, lineToks)}
+                              >{tok.value}</span>
+                            );
+                          }
+                          // Callable token (procedure/function name in source)
+                          if (navigableCallableNames.has(tok.value.toUpperCase())) {
+                            return (
+                              <span
+                                key={j}
+                                className="sql-callable-token"
+                                style={{ color: tok.color }}
+                                title="Ctrl+Click: 상세 열기"
+                                onClick={e => handleCallableClick(e, tok.value)}
                               >{tok.value}</span>
                             );
                           }
