@@ -267,44 +267,69 @@ export async function getSequenceInfo(id, schema, name) {
   return r.rows[0] || null;
 }
 
-export async function executeSQL(id, sql, schema) {
+export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}) {
   const entry = pools.get(id);
   if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+
+  // Strip trailing semicolons / whitespace
+  const cleanSql = sql.trim().replace(/;+\s*$/, '');
+  const isSelect = /^\s*(SELECT|WITH)\b/i.test(cleanSql);
+  const pg = Math.max(1, Number(page) || 1);
+  const lim = Math.min(2000, Math.max(1, Number(limit) || 200));
+  const offset = (pg - 1) * lim;
+
   if (entry.type === 'jdbc') {
     const start = Date.now();
-    const fullSql = schema ? `ALTER SESSION SET CURRENT_SCHEMA = "${schema}"; ${sql}` : sql;
-    // For JDBC, run schema set separately if needed, then the actual query
-    const result = await jdbcExecute(id, sql, {});
+    const result = await jdbcExecute(id, cleanSql, {});
     const elapsed = Date.now() - start;
-    return {
-      columns: (result.metaData || []).map(m => m.name),
-      rows: result.rows || [],
-      rowCount: result.rows?.length || result.rowsAffected || 0,
-      executionTime: elapsed,
-      message: result.rowsAffected != null ? `${result.rowsAffected} row(s) affected` : undefined,
-    };
-  }
-  const conn = await entry.pool.getConnection();
-  const start = Date.now();
-  try {
-    if (schema) {
-      await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`);
-    }
-    const result = await conn.execute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-    const elapsed = Date.now() - start;
-
     if (result.metaData) {
+      const allRows = result.rows || [];
+      const pageRows = allRows.slice(offset, offset + lim);
       return {
         columns: result.metaData.map(m => m.name),
-        rows: result.rows || [],
-        rowCount: result.rows?.length || 0,
+        rows: pageRows,
+        rowCount: pageRows.length,
+        total: allRows.length,
+        page: pg, limit: lim,
         executionTime: elapsed,
       };
     }
+    return {
+      columns: [], rows: [],
+      rowCount: result.rowsAffected || 0,
+      executionTime: elapsed,
+      message: `${result.rowsAffected || 0} row(s) affected`,
+    };
+  }
+
+  const conn = await entry.pool.getConnection();
+  const start = Date.now();
+  try {
+    if (schema) await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`);
+
+    if (isSelect) {
+      const pagedSql = `SELECT * FROM (${cleanSql}) OFFSET :offset ROWS FETCH NEXT :lim ROWS ONLY`;
+      const countSql = `SELECT COUNT(*) AS CNT FROM (${cleanSql})`;
+      const [dataRes, countRes] = await Promise.all([
+        conn.execute(pagedSql, { offset, lim }, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+        conn.execute(countSql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+      ]);
+      const elapsed = Date.now() - start;
+      return {
+        columns: dataRes.metaData.map(m => m.name),
+        rows: dataRes.rows || [],
+        rowCount: dataRes.rows?.length || 0,
+        total: countRes.rows[0].CNT,
+        page: pg, limit: lim,
+        executionTime: elapsed,
+      };
+    }
+
+    const result = await conn.execute(cleanSql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const elapsed = Date.now() - start;
     await conn.commit();
     return {
-      columns: [],
-      rows: [],
+      columns: [], rows: [],
       rowCount: result.rowsAffected || 0,
       executionTime: elapsed,
       message: `${result.rowsAffected || 0} row(s) affected`,

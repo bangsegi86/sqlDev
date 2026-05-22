@@ -99,7 +99,6 @@ export default function PlanViewer({ rawPlan, analysis, loading, error }) {
 
   const tabStyle = (active) => ({
     padding: '4px 12px', fontSize: 11, cursor: 'pointer', userSelect: 'none',
-    borderBottom: active ? '2px solid var(--accent-bright)' : '2px solid transparent',
     color: active ? 'var(--accent-bright)' : 'var(--text-secondary)',
     background: 'none', border: 'none',
     borderBottom: active ? '2px solid var(--accent-bright)' : '2px solid transparent',

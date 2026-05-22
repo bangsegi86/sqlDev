@@ -120,7 +120,7 @@ function collectCondition(toks, i, ...stopWords) {
     if (toks[i].t === 'STR') { parts.push("'…'"); i++; continue; }
     parts.push(toks[i].v); i++;
   }
-  return { text: parts.join(' ').replace(/\s+/g,' ').trim().slice(0, 120), endIdx: i };
+  return { text: parts.join(' ').replace(/\s+/g,' ').trim(), endIdx: i };
 }
 
 // collectUntil kept for backward compatibility (same as collectCondition)
@@ -509,16 +509,75 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   return { endIds: [joinId] };
 }
 
+function buildLoopCodeDetail(step, indent) {
+  indent = indent || '';
+  const lines = [step.code];
+  for (const s of (step.steps || [])) {
+    if (!s) continue;
+    if (s.type === 'for_loop' || s.type === 'while_loop' || s.type === 'loop') {
+      lines.push(indent + '  ' + s.code);
+      lines.push(indent + '    ...');
+      lines.push(indent + '  END LOOP;');
+    } else if (s.type === 'if') {
+      lines.push(indent + '  IF ' + s.condition + ' THEN');
+      for (const br of (s.branches || [])) {
+        for (const bs of (br.steps || [])) {
+          if (bs && bs.code) lines.push(indent + '    ' + bs.code + ';');
+        }
+      }
+      lines.push(indent + '  END IF;');
+    } else if (s.code) {
+      lines.push(indent + '  ' + s.code + ';');
+    }
+  }
+  lines.push(indent + 'END LOOP;');
+  return lines.join('\n');
+}
+
 function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCodeMap = {}) {
   const id = nid('LOOP');
   const AT = arrowTo(edgeLabel);
-  nodeCodeMap[id] = step.code || headerLabel;
-  const summary = summarizeSteps(step.steps).slice(0, 4).map(s => esc(s)).join('\\n');
-  lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
+  nodeCodeMap[id] = buildLoopCodeDetail(step, '');
+
+  const bodySteps = (step.steps || []).filter(Boolean);
+  const hasInteresting = bodySteps.some(s =>
+    ['select','insert','update','delete','merge','if','call_user','call_system',
+     'dynamic','commit','rollback','return','raise','cursor','for_loop','while_loop','loop'].includes(s.type)
+  );
+
+  if (!hasInteresting) {
+    // No meaningful body — show single summary box
+    const summary = summarizeSteps(bodySteps).slice(0, 4).map(s => esc(s)).join('\\n');
+    lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
+    lines.push(`  class ${id} loopBox`);
+    prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
+    lines.push('');
+    return { endIds: [id] };
+  }
+
+  // Expanded loop: header node → body nodes → loop-back → exit merge node
+  lines.push(`  ${id}["${esc(headerLabel)}"]`);
   lines.push(`  class ${id} loopBox`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
   lines.push('');
-  return { endIds: [id] };
+
+  const { endIds: bodyEndIds } = generateFlow(lines, bodySteps, [id], nodeCodeMap, '반복');
+
+  // Loop-back arrows from body end points to loop header
+  const loopBacks = bodyEndIds.filter(e => e !== id);
+  if (loopBacks.length) {
+    loopBacks.forEach(e => lines.push(`  ${e} -->|"↩"| ${id}`));
+    lines.push('');
+  }
+
+  // Explicit exit node so downstream steps connect cleanly
+  const exitId = nid('LEXT');
+  lines.push(`  ${exitId}((●))`);
+  lines.push(`  class ${exitId} mergeNode`);
+  lines.push(`  ${id} -->|"완료"| ${exitId}`);
+  lines.push('');
+
+  return { endIds: [exitId] };
 }
 
 function generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }) {

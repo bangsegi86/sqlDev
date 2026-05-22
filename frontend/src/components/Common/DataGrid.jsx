@@ -1,11 +1,35 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
-export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, sortDir }) {
+export default function DataGrid({
+  columns = [], rows = [],
+  onSort, sortColumn, sortDir,
+  rowOffset = 0,
+  // Lazy-load props (optional)
+  onLoadMore, hasMore = false, loadingMore = false,
+  // Overlay loading (initial fetch or load-more)
+  loading = false,
+}) {
   const containerRef = useRef(null);
+  const sentinelRef = useRef(null);
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
+
+  // IntersectionObserver: auto-trigger onLoadMore when sentinel scrolls into view
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || loadingMore) return;
+    const sentinel = sentinelRef.current;
+    const root = containerRef.current;
+    if (!sentinel || !root) return;
+
+    const observer = new IntersectionObserver(
+      entries => { if (entries[0].isIntersecting) onLoadMore(); },
+      { root, rootMargin: '180px', threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [onLoadMore, hasMore, loadingMore]);
 
   function handleFitData() {
     fitToData(rows.map(row => {
@@ -20,7 +44,24 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', position: 'relative' }}>
+      {/* Loading overlay — shown during initial fetch and load-more */}
+      {loading && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 20,
+          background: 'rgba(20, 20, 22, 0.55)',
+          backdropFilter: 'blur(2px)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 14,
+          pointerEvents: 'none',
+        }}>
+          <div className="grid-spinner" />
+          <span style={{ color: 'rgba(212,212,212,0.85)', fontSize: 12, letterSpacing: 0.3 }}>
+            데이터 로딩 중...
+          </span>
+        </div>
+      )}
+
       <div ref={containerRef} style={{ overflow: 'auto', flex: 1, fontSize: 12 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: hasWidths ? 'fixed' : 'auto' }}>
           {hasWidths && (
@@ -58,7 +99,7 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
           <tbody>
             {rows.map((row, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.03)' }}>
-                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{i + 1}</td>
+                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{rowOffset + i + 1}</td>
                 {columns.map(col => {
                   const val = row[col];
                   return (
@@ -75,6 +116,26 @@ export default function DataGrid({ columns = [], rows = [], onSort, sortColumn, 
               <tr>
                 <td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 20 }}>
                   No data
+                </td>
+              </tr>
+            )}
+
+            {/* Sentinel row: IntersectionObserver target + manual button */}
+            {hasMore && (
+              <tr ref={sentinelRef}>
+                <td
+                  colSpan={columns.length + 1}
+                  style={{ textAlign: 'center', padding: '10px 8px', borderTop: '1px solid var(--border)' }}
+                >
+                  {!loadingMore && (
+                    <button
+                      className="btn-secondary"
+                      onClick={onLoadMore}
+                      style={{ padding: '4px 16px', fontSize: 12 }}
+                    >
+                      + 500건 더 불러오기
+                    </button>
+                  )}
                 </td>
               </tr>
             )}

@@ -28,13 +28,28 @@ function initMermaid() {
 
 let chartSeq = 0;
 
-export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNodeClick }) {
-  const containerRef = useRef(null);
-  const wrapRef = useRef(null);
+function applyZoom(svgEl, wrapEl, zoom) {
+  if (!svgEl || !wrapEl) return;
+  svgEl.style.transform = `scale(${zoom})`;
+  svgEl.style.transformOrigin = 'top left';
+  // Make the wrapper match the visual (scaled) size so the scroll container
+  // knows the true content dimensions — CSS transform alone doesn't affect layout.
+  const vb = svgEl.viewBox?.baseVal;
+  const origW = (vb && vb.width > 0) ? vb.width : svgEl.getBoundingClientRect().width / zoom;
+  const origH = (vb && vb.height > 0) ? vb.height : svgEl.getBoundingClientRect().height / zoom;
+  wrapEl.style.width  = `${origW * zoom + 32}px`;   // +32 for padding
+  wrapEl.style.height = `${origH * zoom + 32}px`;
+}
+
+export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onRenderComplete }) {
+  const wrapRef = useRef(null);       // outer padding div — sets scroll content size
+  const containerRef = useRef(null);  // inner div holding the SVG
   const [error, setError] = useState('');
   const idRef = useRef(`mermaid-${++chartSeq}`);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
-  // Render chart and attach node click handlers
+  // Re-render SVG when chart text changes
   useEffect(() => {
     initMermaid();
     if (!chart || !containerRef.current) return;
@@ -45,45 +60,22 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNode
         if (!containerRef.current) return;
         containerRef.current.innerHTML = svg;
         const svgEl = containerRef.current.querySelector('svg');
-        if (svgEl) {
-          svgEl.style.maxWidth = 'none';
-          svgEl.style.transform = `scale(${zoom})`;
-          svgEl.style.transformOrigin = 'top left';
+        if (!svgEl) return;
 
-          // Attach click handlers to all flowchart nodes
-          if (onNodeClick && Object.keys(nodeCodeMap).length > 0) {
-            const nodeEls = svgEl.querySelectorAll('g.node');
-            nodeEls.forEach(el => {
-              // SVG node IDs look like: "flowchart-SEL1-5"
-              const rawId = el.id || '';
-              const parts = rawId.split('-');
-              // strip leading "flowchart" and trailing numeric suffix
-              const nodeKey = parts.slice(1, -1).join('-');
-              const code = nodeCodeMap[nodeKey];
-              if (code) {
-                el.style.cursor = 'pointer';
-                el.style.transition = 'opacity 0.15s';
-                el.addEventListener('mouseenter', () => { el.style.opacity = '0.75'; });
-                el.addEventListener('mouseleave', () => { el.style.opacity = '1'; });
-                el.addEventListener('click', () => onNodeClick(nodeKey, code));
-              }
-            });
-          }
-        }
+        svgEl.style.maxWidth = 'none';
+        applyZoom(svgEl, wrapRef.current, zoomRef.current);
+
+        if (onRenderComplete) onRenderComplete(svgEl);
       })
-      .catch(e => {
-        setError(e.message || 'Diagram render error');
-      });
+      .catch(e => setError(e.message || 'Diagram render error'));
 
     idRef.current = `mermaid-${++chartSeq}`;
-  }, [chart]); // re-render only when chart changes
+  }, [chart]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update zoom without re-rendering
+  // Update zoom without full re-render
   useEffect(() => {
     const svgEl = containerRef.current?.querySelector('svg');
-    if (svgEl) {
-      svgEl.style.transform = `scale(${zoom})`;
-    }
+    applyZoom(svgEl, wrapRef.current, zoom);
   }, [zoom]);
 
   if (error) {
@@ -96,7 +88,7 @@ export default function MermaidChart({ chart, zoom = 1, nodeCodeMap = {}, onNode
   }
 
   return (
-    <div ref={wrapRef} style={{ padding: 16, overflow: 'auto', minHeight: 200 }}>
+    <div ref={wrapRef} style={{ padding: 16, minHeight: 200, display: 'inline-block', minWidth: '100%' }}>
       <div ref={containerRef} />
     </div>
   );

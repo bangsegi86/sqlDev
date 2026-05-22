@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const ITEM_H = 26; // px per row
+const ITEM_H    = 26; // px per row
+const FOOTER_H  = 22; // px for hint footer
 const MAX_VISIBLE = 10;
 
 const TYPE_META = {
@@ -61,7 +62,7 @@ export default function AutocompleteDropdown({
 
   // Position: appear below cursor, flip up if near bottom of viewport
   const vpH = window.innerHeight;
-  const dropH = Math.min(filtered.length, MAX_VISIBLE) * ITEM_H + 6;
+  const dropH = Math.min(filtered.length, MAX_VISIBLE) * ITEM_H + FOOTER_H;
   const spaceBelow = vpH - anchorRect.bottom;
   const top = spaceBelow >= dropH + 4
     ? anchorRect.bottom + 2

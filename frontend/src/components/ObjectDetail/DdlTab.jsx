@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
+import { useCopy } from '../../utils/clipboard.js';
 
 export default function DdlTab({ connectionId, schema, name, objectType }) {
   const [ddl, setDdl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copyDdl, ddlCopied] = useCopy();
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -17,17 +19,13 @@ export default function DdlTab({ connectionId, schema, name, objectType }) {
       .finally(() => setLoading(false));
   }, [connectionId, schema, name, objectType]);
 
-  function copy() {
-    navigator.clipboard.writeText(ddl).then(() => {}).catch(() => {});
-  }
-
   if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading DDL...</div>;
   if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}>
-        <button className="btn-secondary" onClick={copy} style={{ padding: '2px 8px', fontSize: 11 }}>📋 복사</button>
+        <button className="btn-secondary" onClick={() => copyDdl(ddl)} style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}>{ddlCopied ? '✓ 복사됨' : '📋 복사'}</button>
       </div>
       <pre style={{
         flex: 1, overflow: 'auto', padding: 12,

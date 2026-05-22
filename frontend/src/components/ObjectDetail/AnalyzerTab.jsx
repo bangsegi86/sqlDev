@@ -1,6 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
+import { useCopy } from '../../utils/clipboard.js';
+import { renderHighlighted } from '../../utils/sqlHighlight.js';
+import { formatSQL } from '../../utils/formatSQL.js';
 
 const NODE_TYPE_LABEL = {
   SEL: '📖 SELECT', DML: '✏️ DML', CALL: '🔧 프로시저 호출', SYS: '📦 시스템 호출',
@@ -15,6 +18,7 @@ function getNodeTypeLabel(key) {
 
 export default function AnalyzerTab({ connectionId, schema, objectType, name }) {
   const [result, setResult] = useState(null);
+  const [copyMermaid, mermaidCopied] = useCopy();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState(1);
@@ -22,6 +26,22 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
   // Code panel state
   const [selectedNode, setSelectedNode] = useState(null); // { key, code }
+  const [panelWidth, setPanelWidth] = useState(340);
+
+  function onPanelResizeMouseDown(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    function onMove(ev) {
+      setPanelWidth(Math.max(220, Math.min(700, startW + (startX - ev.clientX))));
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   // Pan mode: 'toggle' button or spacebar hold
   const [panMode, setPanMode] = useState(false);   // locked by button
@@ -31,16 +51,66 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const panScrollStart = useRef(null);
 
   const diagramWrapRef = useRef(null);
+  const resultRef = useRef(null);      // always-fresh result for SVG callbacks
 
   const effectivePan = panMode || spacePan;
 
   const analyze = useCallback(() => {
     setLoading(true); setError(''); setResult(null); setSelectedNode(null);
     api.analyzeProcedure(connectionId, schema, objectType, name)
-      .then(setResult)
+      .then(r => { resultRef.current = r; setResult(r); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [connectionId, schema, objectType, name]);
+
+  // Called by MermaidChart after SVG is injected into DOM
+  const handleSvgReady = useCallback((svgEl) => {
+    const map = resultRef.current?.nodeCodeMap || {};
+    const keys = Object.keys(map);
+    if (!keys.length) return;
+
+    const ns = 'http://www.w3.org/2000/svg';
+
+    // Mermaid v11 node IDs: "{chartId}-flowchart-{nodeKey}-{num}"
+    keys.forEach(key => {
+      const el = svgEl.querySelector(`[id*="-flowchart-${key}-"]`);
+      if (!el) return;
+      el.style.cursor = 'pointer';
+
+      // Add magnifying glass badge at top-right of the node
+      try {
+        const bbox = el.getBBox();
+        const cx = bbox.x + bbox.width - 2;
+        const cy = bbox.y + 2;
+
+        const circle = document.createElementNS(ns, 'circle');
+        circle.setAttribute('cx', cx);
+        circle.setAttribute('cy', cy);
+        circle.setAttribute('r', '9');
+        circle.setAttribute('fill', '#0d47a1');
+        circle.setAttribute('stroke', '#4fc1ff');
+        circle.setAttribute('stroke-width', '1.5');
+        circle.setAttribute('pointer-events', 'none');
+
+        const icon = document.createElementNS(ns, 'text');
+        icon.setAttribute('x', cx);
+        icon.setAttribute('y', cy + 4);
+        icon.setAttribute('text-anchor', 'middle');
+        icon.setAttribute('font-size', '10');
+        icon.setAttribute('fill', '#4fc1ff');
+        icon.setAttribute('pointer-events', 'none');
+        icon.textContent = '🔍';
+
+        el.appendChild(circle);
+        el.appendChild(icon);
+      } catch (_) { /* getBBox can fail if element is not rendered */ }
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectedNode({ key, code: formatSQL(map[key]) || map[key] });
+      });
+    });
+  }, []);
 
   useEffect(() => { analyze(); }, [analyze]);
 
@@ -200,28 +270,46 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
               <MermaidChart
                 chart={result.mermaid}
                 zoom={zoom}
-                nodeCodeMap={effectivePan ? {} : (result.nodeCodeMap || {})}
-                onNodeClick={effectivePan ? undefined : (key, code) => setSelectedNode({ key, code })}
+                nodeCodeMap={result.nodeCodeMap || {}}
+                onRenderComplete={handleSvgReady}
               />
             </div>
 
             {/* Code side panel */}
             {selectedNode && (
               <div style={{
-                width: 340, flexShrink: 0,
+                position: 'relative',
+                width: panelWidth, flexShrink: 0,
                 borderLeft: '1px solid var(--border)',
                 display: 'flex', flexDirection: 'column',
                 background: 'var(--bg-panel)',
                 overflow: 'hidden',
               }}>
+                {/* Resize handle on left edge */}
+                <div
+                  onMouseDown={onPanelResizeMouseDown}
+                  style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+                    cursor: 'col-resize', zIndex: 10, background: 'transparent',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,193,255,0.45)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                />
+
                 {/* Panel header */}
                 <div style={{
                   padding: '7px 12px', borderBottom: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1 }}>
+                  <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {getNodeTypeLabel(selectedNode.key)}
                   </span>
+                  <button
+                    onClick={() => setSelectedNode(n => n ? { ...n, code: formatSQL(n.code) } : n)}
+                    style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
+                    title="줄 맞추기"
+                  >≡</button>
                   <button
                     onClick={() => navigator.clipboard?.writeText(selectedNode.code)}
                     style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
@@ -234,17 +322,9 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
                   >✕</button>
                 </div>
 
-                {/* Code content */}
-                <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
-                  <pre style={{
-                    margin: 0, padding: '12px 14px',
-                    fontFamily: 'var(--code-font)', fontSize: 12,
-                    color: 'var(--text-primary)', lineHeight: 1.7,
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    background: 'transparent',
-                  }}>
-                    {selectedNode.code}
-                  </pre>
+                {/* Code content — foldable + SQL highlighted */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  <FoldableCode code={selectedNode.code} />
                 </div>
 
                 <div style={{ padding: '6px 12px', borderTop: '1px solid var(--border)', fontSize: 10, color: 'var(--text-dim)' }}>
@@ -265,7 +345,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
           <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Mermaid 다이어그램 소스</span>
-              <button className="btn-secondary" onClick={() => navigator.clipboard.writeText(result.mermaid)} style={{ padding: '2px 8px', fontSize: 11 }}>📋 복사</button>
+              <button className="btn-secondary" onClick={() => copyMermaid(result.mermaid)} style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}>{mermaidCopied ? '✓ 복사됨' : '📋 복사'}</button>
             </div>
             <pre style={{ fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', background: 'var(--bg-panel)', padding: 12, borderRadius: 4, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
               {result.mermaid}
@@ -276,6 +356,93 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     </div>
   );
 }
+
+// ── Foldable code viewer ───────────────────────────────────────────────────────
+
+const FOLD_TRIGGER = /(\b(THEN|LOOP|ELSE|EXCEPTION|BEGIN)\s*$|^\s*(SELECT|INSERT|UPDATE|DELETE|MERGE)\b)/i;
+
+function getIndentLen(line) {
+  const m = line.match(/^(\s*)/);
+  return m ? m[1].length : 0;
+}
+
+function buildFoldableSet(lines) {
+  const s = new Set();
+  for (let i = 0; i < lines.length - 1; i++) {
+    const stripped = lines[i].trimEnd().replace(/--.*$/, '').trimEnd();
+    if (!FOLD_TRIGGER.test(stripped)) continue;
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === '') j++;
+    if (j < lines.length && getIndentLen(lines[j]) > getIndentLen(lines[i])) s.add(i);
+  }
+  return s;
+}
+
+function FoldableCode({ code }) {
+  const lines = useMemo(() => code ? code.split('\n') : [], [code]);
+  const foldableSet = useMemo(() => buildFoldableSet(lines), [lines]);
+  const [folded, setFolded] = useState(new Set());
+
+  // Reset fold state when code changes (e.g. after format)
+  useEffect(() => { setFolded(new Set()); }, [code]);
+
+  const toggle = useCallback((idx) => {
+    setFolded(prev => {
+      const n = new Set(prev);
+      if (n.has(idx)) n.delete(idx); else n.add(idx);
+      return n;
+    });
+  }, []);
+
+  // Build visible line list respecting fold state
+  const visible = [];
+  let skipDepth = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const ind = getIndentLen(lines[i]);
+    if (skipDepth >= 0) {
+      if (lines[i].trim() === '' || ind > skipDepth) continue;
+      skipDepth = -1;
+    }
+    const isF = foldableSet.has(i);
+    const isCol = isF && folded.has(i);
+    if (isCol) skipDepth = ind;
+    visible.push({ lineIdx: i, isFoldable: isF, isCollapsed: isCol });
+  }
+
+  return (
+    <pre style={{
+      margin: 0, padding: '10px 0',
+      fontFamily: 'var(--code-font)', fontSize: 12,
+      color: 'var(--text-primary)', lineHeight: 1.7,
+      background: 'transparent',
+    }}>
+      {visible.map(({ lineIdx, isFoldable, isCollapsed }) => {
+        const line = lines[lineIdx];
+        return (
+          <div key={lineIdx} style={{ display: 'flex', alignItems: 'flex-start' }}>
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, flexShrink: 0, color: '#4fc1ff', fontSize: 8,
+                cursor: isFoldable ? 'pointer' : 'default',
+                userSelect: 'none', paddingTop: 1,
+              }}
+              onClick={isFoldable ? () => toggle(lineIdx) : undefined}
+            >
+              {isFoldable ? (isCollapsed ? '▶' : '▼') : ''}
+            </span>
+            <span style={{ flex: 1, paddingRight: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {renderHighlighted(line)}
+              {isCollapsed && <span style={{ color: '#555', fontStyle: 'italic' }}> ···</span>}
+            </span>
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 function AnalysisSummary({ result }) {
   const { params, reads, writes, calls, exceptions, cursors, variables } = result;

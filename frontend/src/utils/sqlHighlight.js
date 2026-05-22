@@ -246,18 +246,132 @@ function nextNonWsIs(raw, j, ch) {
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
 
-// Returns React children for a <pre> or similar element
-export function renderHighlighted(src) {
+// Returns React children for a <pre> or similar element.
+// navigableNames: optional Set of uppercase object names that should get the
+// ctrl-hover underline class (tables, procedures, functions in the schema cache).
+export function renderHighlighted(src, navigableNames) {
   const tokens = highlightTokens(src);
-  return tokens.map((tok, i) =>
-    tok.color
-      ? <span
-          key={i}
-          style={{ color: tok.color }}
-          className={tok.color === SQL_COLORS.table ? 'sql-table-token' : undefined}
-        >{tok.value}</span>
-      : tok.value
-  );
+  const navSet = (navigableNames instanceof Set && navigableNames.size > 0) ? navigableNames : null;
+  const wordRe = /^[A-Za-z_$#][A-Za-z0-9_$#]*$/;
+
+  return tokens.map((tok, i) => {
+    // A token is navigable if it's already table-colored, OR if its value
+    // exists in the schema object cache (covers procs/funcs and bare names).
+    const navigable =
+      tok.color === SQL_COLORS.table ||
+      (navSet && wordRe.test(tok.value) && navSet.has(tok.value.toUpperCase()));
+
+    const className = navigable ? 'sql-table-token' : undefined;
+
+    if (tok.color || className) {
+      return React.createElement('span', {
+        key: i,
+        style: tok.color ? { color: tok.color } : undefined,
+        className,
+      }, tok.value);
+    }
+    return tok.value;
+  });
+}
+
+// Returns { schema: string|null, table: string } for the table token under charPos,
+// or null if the cursor is not on a table-colored token.
+export function getTableAtCursor(src, charPos) {
+  if (!src) return null;
+  const raw = rawTokenize(src);
+  const colored = highlightTokens(src);
+
+  // Find which raw token contains charPos
+  let pos = 0;
+  let idx = -1;
+  for (let i = 0; i < raw.length; i++) {
+    const end = pos + raw[i].v.length;
+    if (pos <= charPos && charPos < end) { idx = i; break; }
+    pos = end;
+  }
+  if (idx === -1) return null;
+  if (colored[idx].color !== SQL_COLORS.table) return null;
+
+  // Skip whitespace helpers
+  const nextNW = (from) => {
+    let k = from + 1;
+    while (k < raw.length && raw[k].k === 'ws') k++;
+    return k < raw.length ? k : -1;
+  };
+  const prevNW = (from) => {
+    let k = from - 1;
+    while (k >= 0 && raw[k].k === 'ws') k--;
+    return k >= 0 ? k : -1;
+  };
+
+  const ni = nextNW(idx);
+  // If next non-ws is '.', this token is a schema prefix — return schema+table
+  if (ni !== -1 && raw[ni].k === 'p' && raw[ni].v === '.') {
+    const ti = nextNW(ni);
+    if (ti !== -1 && colored[ti] && colored[ti].color === SQL_COLORS.table) {
+      return { schema: raw[idx].v.toUpperCase(), table: raw[ti].v.toUpperCase() };
+    }
+    return { schema: null, table: raw[idx].v.toUpperCase() };
+  }
+
+  // If prev non-ws is '.', this token is a qualified table name
+  const pi = prevNW(idx);
+  if (pi !== -1 && raw[pi].k === 'p' && raw[pi].v === '.') {
+    const si = prevNW(pi);
+    if (si !== -1 && colored[si] && colored[si].color === SQL_COLORS.table) {
+      return { schema: raw[si].v.toUpperCase(), table: raw[idx].v.toUpperCase() };
+    }
+  }
+
+  return { schema: null, table: raw[idx].v.toUpperCase() };
+}
+
+// Returns { schema: string|null, name: string } if cursor is on a user-defined
+// callable (procedure/function call) token, or null otherwise.
+export function getCallableAtCursor(src, charPos) {
+  if (!src) return null;
+  const raw = rawTokenize(src);
+  const colored = highlightTokens(src);
+
+  let pos = 0;
+  let idx = -1;
+  for (let i = 0; i < raw.length; i++) {
+    const end = pos + raw[i].v.length;
+    if (pos <= charPos && charPos < end) { idx = i; break; }
+    pos = end;
+  }
+  if (idx === -1 || raw[idx].k !== 'word') return null;
+
+  const up = raw[idx].v.toUpperCase();
+  if (SQL_KW.has(up) || PLSQL_KW.has(up)) return null;
+
+  const prevNW = (from) => {
+    let k = from - 1;
+    while (k >= 0 && raw[k].k === 'ws') k--;
+    return k >= 0 ? k : -1;
+  };
+
+  // Case 1: identifier followed by '(' colored as builtin but NOT a real built-in
+  const isUserCallable =
+    colored[idx].color === SQL_COLORS.builtin && !BUILTIN_FN.has(up);
+
+  // Case 2: identifier right after EXECUTE keyword (no parens)
+  const pi = prevNW(idx);
+  const isAfterExec =
+    colored[idx].color === null &&
+    pi !== -1 && raw[pi].k === 'word' &&
+    raw[pi].v.toUpperCase() === 'EXECUTE';
+
+  if (!isUserCallable && !isAfterExec) return null;
+
+  // Check for schema prefix: SCHEMA.PROC_NAME
+  if (pi !== -1 && raw[pi].k === 'p' && raw[pi].v === '.') {
+    const si = prevNW(pi);
+    if (si !== -1 && raw[si].k === 'word') {
+      return { schema: raw[si].v.toUpperCase(), name: up };
+    }
+  }
+  return { schema: null, name: up };
 }
 
 // Splits highlighted tokens into per-line arrays (for line-numbered source view)

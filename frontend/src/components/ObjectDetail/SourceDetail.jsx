@@ -1,20 +1,22 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../../api/client.js';
-import { useApp } from '../../store/AppContext.jsx';
+import { useApp, openTab } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
-import { highlightTokens, splitHighlightedLines } from '../../utils/sqlHighlight.js';
+import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
+import { useCopy } from '../../utils/clipboard.js';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 
 export default function SourceDetail({ tab }) {
-  const { dispatch } = useApp();
+  const { dispatch, state } = useApp();
   const { schema, objectType, name } = tab.content;
   const canAnalyze = ANALYZABLE.includes(objectType);
   const [activeTab, setActiveTab] = useState(tab.content.activeTab || (canAnalyze ? 'analyzer' : 'source'));
   const [source, setSource] = useState('');
   const [isFormatted, setIsFormatted] = useState(false);
+  const [copySource, sourceCopied] = useCopy();
   const [formattedSource, setFormattedSource] = useState('');
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +42,45 @@ export default function SourceDetail({ tab }) {
         .catch(() => {});
     }
   }, [activeTab]);
+
+  function navigateToTable(tableName, schemaName) {
+    const s = schemaName || schema;
+    if (!s || !tableName) return;
+    const id = `TABLE-${tab.connectionId}-${s}-${tableName}`;
+    openTab(dispatch, state, {
+      id, type: 'table', title: tableName,
+      connectionId: tab.connectionId,
+      content: { schema: s, objectType: 'TABLE', name: tableName },
+    });
+  }
+
+  function handleTableClick(e, tok, j, lineToks) {
+    if (!e.ctrlKey) return;
+    const skipWs = (arr, start, dir) => {
+      let i = start + dir;
+      while (i >= 0 && i < arr.length) {
+        const t = arr[i];
+        if (!(t.color === null && t.value.trim() === '')) return { tok: t, idx: i };
+        i += dir;
+      }
+      return null;
+    };
+    const next = skipWs(lineToks, j, 1);
+    if (next?.tok.value === '.') {
+      const after = skipWs(lineToks, next.idx, 1);
+      if (after?.tok.color === SQL_COLORS.table) {
+        navigateToTable(after.tok.value.toUpperCase(), tok.value.toUpperCase());
+        return;
+      }
+    }
+    let schemaName = null;
+    const prev = skipWs(lineToks, j, -1);
+    if (prev?.tok.value === '.') {
+      const before = skipWs(lineToks, prev.idx, -1);
+      if (before?.tok.color === SQL_COLORS.table) schemaName = before.tok.value.toUpperCase();
+    }
+    navigateToTable(tok.value.toUpperCase(), schemaName);
+  }
 
   function switchTab(t) {
     setActiveTab(t);
@@ -98,9 +139,9 @@ export default function SourceDetail({ tab }) {
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
                 className="btn-secondary"
-                onClick={() => navigator.clipboard.writeText(isFormatted ? formattedSource : source)}
-                style={{ padding: '2px 8px', fontSize: 11 }}
-              >📋 복사</button>
+                onClick={() => copySource(isFormatted ? formattedSource : source)}
+                style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
+              >{sourceCopied ? '✓ 복사됨' : '📋 복사'}</button>
               <button
                 className={isFormatted ? 'btn-success' : 'btn-secondary'}
                 style={{ padding: '2px 8px', fontSize: 11 }}
@@ -127,11 +168,21 @@ export default function SourceDetail({ tab }) {
                     <div key={i} style={{ display: 'flex' }}>
                       <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
                       <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
-                        {lineToks.map((tok, j) =>
-                          tok.color
-                            ? <span key={j} style={{ color: tok.color }}>{tok.value}</span>
-                            : tok.value
-                        )}
+                        {lineToks.map((tok, j) => {
+                          if (!tok.color) return tok.value;
+                          if (tok.color === SQL_COLORS.table) {
+                            return (
+                              <span
+                                key={j}
+                                className="sql-table-token"
+                                style={{ color: tok.color }}
+                                title="Ctrl+Click: 테이블 상세 열기"
+                                onClick={e => handleTableClick(e, tok, j, lineToks)}
+                              >{tok.value}</span>
+                            );
+                          }
+                          return <span key={j} style={{ color: tok.color }}>{tok.value}</span>;
+                        })}
                       </span>
                     </div>
                   ))}

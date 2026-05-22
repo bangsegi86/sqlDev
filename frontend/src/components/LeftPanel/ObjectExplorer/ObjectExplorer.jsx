@@ -17,6 +17,10 @@ export default function ObjectExplorer() {
   const [schemaError, setSchemaError] = useState(null);
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
+  const [filterCollapsed, setFilterCollapsed] = useState(new Set());
+
+  // Reset per-type collapsed state whenever the filter text changes
+  useEffect(() => { setFilterCollapsed(new Set()); }, [objectFilter]);
 
   useEffect(() => {
     if (!activeConnectionId || !isConnected) {
@@ -73,8 +77,18 @@ export default function ObjectExplorer() {
 
   function handleTypeClick(schema, type) {
     const nodeId = `${activeConnectionId}-${schema}-${type}`;
-    if (!expandedNodes.has(nodeId)) loadObjects(schema, type);
-    toggleNode(nodeId);
+    if (isObjFiltering) {
+      // During filter: use local collapsed state so expand/collapse works independently
+      setFilterCollapsed(prev => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) next.delete(nodeId);
+        else next.add(nodeId);
+        return next;
+      });
+    } else {
+      if (!expandedNodes.has(nodeId)) loadObjects(schema, type);
+      toggleNode(nodeId);
+    }
   }
 
   function handleObjectClick(schema, type, name) {
@@ -82,7 +96,7 @@ export default function ObjectExplorer() {
       : type === 'SEQUENCE' ? 'sequence'
       : type === 'SYNONYM' ? 'synonym' : 'source';
     openTab(dispatch, state, {
-      id: `${type}-${schema}-${name}`,
+      id: `${type}-${activeConnectionId}-${schema}-${name}`,
       type: tabType,
       title: name,
       connectionId: activeConnectionId,
@@ -98,13 +112,13 @@ export default function ObjectExplorer() {
   const isObjFiltering = !!objFilterLower;
 
   return (
-    <div>
-      <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
       </div>
 
       {/* Schema filter */}
-      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)' }}>
+      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput
           placeholder="스키마 필터..."
           value={schemaFilter}
@@ -118,7 +132,7 @@ export default function ObjectExplorer() {
       </div>
 
       {/* Object filter */}
-      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)' }}>
+      <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput
           placeholder="오브젝트 필터..."
           value={objectFilter}
@@ -131,7 +145,7 @@ export default function ObjectExplorer() {
         )}
       </div>
 
-      <div style={{ overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
         {schemaError && (
           <div style={{ padding: '8px 10px', color: 'var(--danger)', fontSize: 11, wordBreak: 'break-word' }}>
@@ -164,8 +178,8 @@ export default function ObjectExplorer() {
                 // When object filter is active, hide types with no matches (unless still loading)
                 if (isObjFiltering && !isLoading && filteredObjList && filteredObjList.length === 0) return null;
 
-                // When object filter is active, show objects directly (auto-expanded)
-                const showObjects = isObjFiltering ? true : typeExpanded;
+                // Filter mode: default expanded, but respect manual collapse via filterCollapsed
+                const showObjects = isObjFiltering ? !filterCollapsed.has(typeNodeId) : typeExpanded;
                 const displayList = isObjFiltering ? filteredObjList : objList;
 
                 return (
