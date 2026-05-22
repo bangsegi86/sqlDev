@@ -107,6 +107,9 @@ function formatPLSQL(src) {
   let inExceptionSection = false;
   let exceptionHandlerLevel = 0;
 
+  // Each CASE expression pushes { whenCol, firstWhenSeen } so WHEN/ELSE can align.
+  const caseStack = [];
+
   const parenStack = [];      // 'func' | 'subquery' | 'insertList' per open paren
   const subqueryCtxStack = []; // saved state per open subquery paren
 
@@ -273,8 +276,8 @@ function formatPLSQL(src) {
     // ── Word tokens ───────────────────────────────────────────────────────
     if (tok.t !== 'W') continue;
 
-    // Inside CASE expression: everything inline (except END/CASE which manage depth)
-    if (caseDepth > 0 && up !== 'END' && up !== 'CASE') {
+    // Inside CASE expression: most tokens inline; WHEN/THEN/ELSE/END/CASE handled by switch
+    if (caseDepth > 0 && !['END', 'CASE', 'WHEN', 'THEN', 'ELSE'].includes(up)) {
       app(up); continue;
     }
 
@@ -332,6 +335,7 @@ function formatPLSQL(src) {
         if (caseDepth > 0) {
           app('END');
           caseDepth--;
+          caseStack.pop();
           if (nextUp === 'CASE') { app('CASE'); i++; }
         } else {
           const isBlockEnd = !['IF', 'LOOP', 'CASE'].includes(nextUp);
@@ -379,24 +383,49 @@ function formatPLSQL(src) {
       case 'IF':    { flush(); cur = 'IF'; inIfCondition = true; break; }
       case 'ELSIF': { dropTrailingBlank(); flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; inIfCondition = true; break; }
       case 'ELSE':  {
-        dropTrailingBlank();
-        flush(); level = Math.max(0, level - 1);
-        cur = 'ELSE'; flush(); level++;
+        if (caseDepth > 0) {
+          // CASE ELSE: new line aligned at the WHEN column
+          const frame = caseStack[caseStack.length - 1];
+          flush();
+          curPrefix = ' '.repeat(Math.max(0, frame.whenCol - getIndent().length));
+          cur = 'ELSE';
+        } else {
+          dropTrailingBlank();
+          flush(); level = Math.max(0, level - 1);
+          cur = 'ELSE'; flush(); level++;
+        }
         break;
       }
       case 'THEN': {
-        inIfCondition = false;
-        cur = cur.trimEnd() + ' THEN'; flush(); level++;
+        if (caseDepth > 0) {
+          // CASE THEN: stays inline on the WHEN line
+          app('THEN');
+        } else {
+          inIfCondition = false;
+          cur = cur.trimEnd() + ' THEN'; flush(); level++;
+        }
         break;
       }
       case 'FOR':   { flush(); cur = 'FOR'; break; }
       case 'WHILE': { flush(); cur = 'WHILE'; inIfCondition = true; break; }
       case 'LOOP':  { inIfCondition = false; cur = cur.trimEnd() + ' LOOP'; flush(); level++; break; }
       case 'WHEN': {
-        // Inside exception section, each WHEN resets to handler base level.
-        // Guard with !cur.trim() to skip EXIT WHEN (where cur holds 'EXIT').
-        if (inExceptionSection && !cur.trim()) level = exceptionHandlerLevel;
-        flush(); cur = 'WHEN';
+        if (caseDepth > 0) {
+          // CASE WHEN: first WHEN inline, subsequent WHENs on new line aligned at whenCol
+          const frame = caseStack[caseStack.length - 1];
+          if (!frame.firstWhenSeen) {
+            app('WHEN');
+            frame.firstWhenSeen = true;
+          } else {
+            flush();
+            curPrefix = ' '.repeat(Math.max(0, frame.whenCol - getIndent().length));
+            cur = 'WHEN';
+          }
+        } else {
+          // Exception section WHEN or EXIT WHEN
+          if (inExceptionSection && !cur.trim()) level = exceptionHandlerLevel;
+          flush(); cur = 'WHEN';
+        }
         break;
       }
 
@@ -498,10 +527,15 @@ function formatPLSQL(src) {
         break;
       }
 
-      // ── CASE expression (inline) ─────────────────────────────────────────
+      // ── CASE expression — multi-line WHEN/ELSE alignment ────────────────
       case 'CASE': {
         app('CASE');
         caseDepth++;
+        // Record the column where the first WHEN will appear (right after 'CASE ').
+        // Subsequent WHENs and ELSE are aligned at this column.
+        const lineStart = getIndent().length + curPrefix.length;
+        const whenCol = lineStart + cur.trimEnd().length + 1;
+        caseStack.push({ whenCol, firstWhenSeen: false });
         break;
       }
 
