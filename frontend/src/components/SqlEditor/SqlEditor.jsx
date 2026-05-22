@@ -5,7 +5,7 @@ import DataGrid from '../Common/DataGrid.jsx';
 import PlanViewer from './PlanViewer.jsx';
 import AutocompleteDropdown from './AutocompleteDropdown.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
-import { renderHighlighted, getTableAtCursor } from '../../utils/sqlHighlight.js';
+import { renderHighlighted, getTableAtCursor, getCallableAtCursor } from '../../utils/sqlHighlight.js';
 import { openTab } from '../../store/AppContext.jsx';
 
 const LIMIT = 500;
@@ -55,42 +55,33 @@ function getWordAtCursor(text, pos) {
   return { word, wordStart: start };
 }
 
-// Compute pixel position of cursor inside textarea for dropdown anchor
+// Reusable canvas for text width measurement (avoids DOM mirror div bugs)
+const _measureCanvas = document.createElement('canvas');
+
 function getCaretPixelPos(textarea) {
   const rect = textarea.getBoundingClientRect();
-  // Use a mirror div to compute caret position
-  const mirror = document.createElement('div');
   const style = window.getComputedStyle(textarea);
-  for (const prop of ['fontFamily','fontSize','fontWeight','lineHeight','letterSpacing',
-    'paddingTop','paddingLeft','paddingRight','paddingBottom','borderTopWidth',
-    'borderLeftWidth','width','boxSizing','whiteSpace','wordBreak','overflowWrap']) {
-    mirror.style[prop] = style[prop];
-  }
-  mirror.style.position = 'absolute';
-  mirror.style.visibility = 'hidden';
-  mirror.style.overflow = 'hidden';
-  mirror.style.height = 'auto';
-  mirror.style.whiteSpace = 'pre';
+  const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.6 || 20;
+  const paddingTop  = parseFloat(style.paddingTop)  || 0;
+  const paddingLeft = parseFloat(style.paddingLeft) || 0;
 
-  const pos = textarea.selectionStart;
-  const before = textarea.value.slice(0, pos);
-  mirror.textContent = before;
-  const span = document.createElement('span');
-  span.textContent = textarea.value[pos] || '.';
-  mirror.appendChild(span);
-  document.body.appendChild(mirror);
+  // Measure text width using canvas (accurate for monospace fonts)
+  const ctx = _measureCanvas.getContext('2d');
+  ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
 
-  const spanRect = span.getBoundingClientRect();
-  document.body.removeChild(mirror);
+  const textBeforeCursor = textarea.value.slice(0, textarea.selectionStart);
+  const lines = textBeforeCursor.split('\n');
+  const row = lines.length - 1;
+  const colWidth = ctx.measureText(lines[row]).width;
 
-  // Account for textarea scroll
-  const caretLeft = rect.left + span.offsetLeft - textarea.scrollLeft;
-  const caretBottom = rect.top + span.offsetTop + span.offsetHeight - textarea.scrollTop;
-  const caretTop = rect.top + span.offsetTop - textarea.scrollTop;
+  const caretTop    = rect.top  + paddingTop  + row * lineHeight - textarea.scrollTop;
+  const caretLeft   = rect.left + paddingLeft + colWidth         - textarea.scrollLeft;
+  const caretBottom = caretTop  + lineHeight;
+
   return {
-    left: Math.min(Math.max(caretLeft, rect.left), rect.right - 4),
-    top: caretTop,
-    bottom: caretBottom,
+    left:   Math.min(Math.max(caretLeft, rect.left), rect.right - 4),
+    top:    Math.max(caretTop,    rect.top),
+    bottom: Math.min(caretBottom, rect.bottom),
   };
 }
 
@@ -284,23 +275,40 @@ export default function SqlEditor({ tab }) {
     return charPos;
   }
 
+  function navigateToObject(schemaName, objectName, objectType) {
+    const s = schemaName || schema;
+    if (!s || !objectName) return;
+    openTab(dispatch, state, {
+      id: `${objectType}-${connId}-${s}-${objectName}`,
+      type: 'table', title: objectName,
+      connectionId: connId,
+      content: { schema: s, objectType, name: objectName },
+    });
+  }
+
+  async function handleObjectNavigation(charPos) {
+    // 1. Try table/view
+    const tableResult = getTableAtCursor(sql, charPos);
+    if (tableResult) {
+      navigateToObject(tableResult.schema, tableResult.table, 'TABLE');
+      return;
+    }
+    // 2. Try procedure / function
+    const callResult = getCallableAtCursor(sql, charPos);
+    if (callResult) {
+      const items = acItems.length > 0 ? acItems : await loadAcItems();
+      const found = items.find(it => it.name.toUpperCase() === callResult.name);
+      if (found && (found.type === 'PROCEDURE' || found.type === 'FUNCTION')) {
+        navigateToObject(callResult.schema, found.name, found.type);
+      }
+    }
+  }
+
   function handlePreClick(e) {
     if (!ctrlHeldRef.current) return;
     const charPos = getCharPosFromPoint(e.clientX, e.clientY);
     if (charPos < 0) return;
-    const r = getTableAtCursor(sql, charPos);
-    if (r) navigateToTable(r.schema, r.table);
-  }
-
-  function navigateToTable(schemaName, tableName) {
-    const s = schemaName || schema;
-    if (!s || !tableName) return;
-    openTab(dispatch, state, {
-      id: `TABLE-${connId}-${s}-${tableName}`,
-      type: 'table', title: tableName,
-      connectionId: connId,
-      content: { schema: s, objectType: 'TABLE', name: tableName },
-    });
+    handleObjectNavigation(charPos);
   }
 
   function handleKeyDown(e) {
@@ -334,8 +342,7 @@ export default function SqlEditor({ tab }) {
     if (e.key === 'F4') {
       e.preventDefault();
       const pos = textareaRef.current?.selectionStart ?? 0;
-      const r = getTableAtCursor(sql, pos);
-      if (r) navigateToTable(r.schema, r.table);
+      handleObjectNavigation(pos);
     }
   }
 
@@ -504,7 +511,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭 테이블 이동
+          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체 이동
         </span>
       </div>
 
@@ -547,8 +554,7 @@ export default function SqlEditor({ tab }) {
             if (acOpen) closeAutocomplete();
             if (e.ctrlKey) {
               const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
-              const r = getTableAtCursor(sql, pos);
-              if (r) navigateToTable(r.schema, r.table);
+              handleObjectNavigation(pos);
             }
           }}
           style={{

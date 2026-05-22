@@ -312,6 +312,54 @@ export function getTableAtCursor(src, charPos) {
   return { schema: null, table: raw[idx].v.toUpperCase() };
 }
 
+// Returns { schema: string|null, name: string } if cursor is on a user-defined
+// callable (procedure/function call) token, or null otherwise.
+export function getCallableAtCursor(src, charPos) {
+  if (!src) return null;
+  const raw = rawTokenize(src);
+  const colored = highlightTokens(src);
+
+  let pos = 0;
+  let idx = -1;
+  for (let i = 0; i < raw.length; i++) {
+    const end = pos + raw[i].v.length;
+    if (pos <= charPos && charPos < end) { idx = i; break; }
+    pos = end;
+  }
+  if (idx === -1 || raw[idx].k !== 'word') return null;
+
+  const up = raw[idx].v.toUpperCase();
+  if (SQL_KW.has(up) || PLSQL_KW.has(up)) return null;
+
+  const prevNW = (from) => {
+    let k = from - 1;
+    while (k >= 0 && raw[k].k === 'ws') k--;
+    return k >= 0 ? k : -1;
+  };
+
+  // Case 1: identifier followed by '(' colored as builtin but NOT a real built-in
+  const isUserCallable =
+    colored[idx].color === SQL_COLORS.builtin && !BUILTIN_FN.has(up);
+
+  // Case 2: identifier right after EXECUTE keyword (no parens)
+  const pi = prevNW(idx);
+  const isAfterExec =
+    colored[idx].color === null &&
+    pi !== -1 && raw[pi].k === 'word' &&
+    raw[pi].v.toUpperCase() === 'EXECUTE';
+
+  if (!isUserCallable && !isAfterExec) return null;
+
+  // Check for schema prefix: SCHEMA.PROC_NAME
+  if (pi !== -1 && raw[pi].k === 'p' && raw[pi].v === '.') {
+    const si = prevNW(pi);
+    if (si !== -1 && raw[si].k === 'word') {
+      return { schema: raw[si].v.toUpperCase(), name: up };
+    }
+  }
+  return { schema: null, name: up };
+}
+
 // Splits highlighted tokens into per-line arrays (for line-numbered source view)
 export function splitHighlightedLines(tokens) {
   const lines = [[]];
