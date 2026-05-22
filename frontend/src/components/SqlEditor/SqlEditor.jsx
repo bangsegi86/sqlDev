@@ -8,7 +8,7 @@ import { formatSQL } from '../../utils/formatSQL.js';
 import { renderHighlighted, getTableAtCursor, getCallableAtCursor } from '../../utils/sqlHighlight.js';
 import { openTab } from '../../store/AppContext.jsx';
 
-const LIMIT = 500;
+const LIMIT = 200;
 // Object types to include in autocomplete
 const AC_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'SEQUENCE'];
 
