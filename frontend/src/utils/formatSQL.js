@@ -123,7 +123,7 @@ function formatPLSQL(src) {
   }
 
   function app(s) {
-    const needsSpace = cur && !cur.endsWith(' ') && !cur.endsWith('(');
+    const needsSpace = cur && !cur.endsWith(' ') && !cur.endsWith('(') && !cur.endsWith('.');
     const noSpaceBefore = s === ')' || s === ',' || s === ';' || s === '.';
     if (needsSpace && !noSpaceBefore) cur += ' ';
     cur += s;
