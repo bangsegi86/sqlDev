@@ -383,7 +383,11 @@ function formatPLSQL(src) {
 
       // ── Control flow ────────────────────────────────────────────────────
       case 'IF':    { flush(); cur = 'IF'; inIfCondition = true; break; }
-      case 'ELSIF': { dropTrailingBlank(); flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; inIfCondition = true; break; }
+      case 'ELSIF': {
+        // Ensure a blank line before ELSIF for readability
+        if (lines.length > 0 && lines[lines.length - 1] !== '') lines.push('');
+        flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; inIfCondition = true; break;
+      }
       case 'ELSE':  {
         if (caseDepth > 0) {
           // CASE ELSE: new line aligned at the WHEN column
