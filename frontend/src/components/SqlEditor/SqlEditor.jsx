@@ -500,9 +500,32 @@ export default function SqlEditor({ tab }) {
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
         <button
           className="btn-secondary"
-          onClick={() => setSql(prev => formatSQL(prev))}
+          onClick={() => {
+            const ta = textareaRef.current;
+            if (!ta) return;
+            const start = ta.selectionStart;
+            const end   = ta.selectionEnd;
+            if (start !== end) {
+              // Format selected range only, preserve surrounding text
+              const before    = sql.slice(0, start);
+              const selected  = sql.slice(start, end);
+              const after     = sql.slice(end);
+              const formatted = formatSQL(selected);
+              const newSql    = before + formatted + after;
+              setSql(newSql);
+              requestAnimationFrame(() => {
+                if (ta) {
+                  ta.selectionStart = start;
+                  ta.selectionEnd   = start + formatted.length;
+                  ta.focus();
+                }
+              });
+            } else {
+              setSql(prev => formatSQL(prev));
+            }
+          }}
           style={{ padding: '3px 10px' }}
-          title="SQL 코드 줄 맞추기"
+          title="선택 영역만 줄 맞추기 (선택 없으면 전체)"
         >≡ 줄 맞추기</button>
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
