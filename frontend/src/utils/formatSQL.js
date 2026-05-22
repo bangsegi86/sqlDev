@@ -89,6 +89,12 @@ function formatPLSQL(src) {
   let procHeaderSeen = false;
   let inDeclSection = false;
 
+  // Each BEGIN pushes { level, inExceptionSection, exceptionHandlerLevel } so END can
+  // restore the exact level rather than blindly decrementing.
+  const beginStack = [];
+  let inExceptionSection = false;
+  let exceptionHandlerLevel = 0;
+
   const parenStack = [];      // 'func' | 'subquery' per open paren
   const subqueryCtxStack = []; // saved state per open subquery paren
 
@@ -268,6 +274,7 @@ function formatPLSQL(src) {
       // ── Block openers ──────────────────────────────────────────────────
       case 'DECLARE': {
         flush(); cur = 'DECLARE'; flush(); level++;
+        inDeclSection = true;
         break;
       }
       case 'BEGIN': {
@@ -276,6 +283,8 @@ function formatPLSQL(src) {
           level = Math.max(0, level - 1);
           inDeclSection = false;
         }
+        beginStack.push({ level, inExceptionSection, exceptionHandlerLevel });
+        inExceptionSection = false;
         cur = 'BEGIN'; flush(); level++;
         break;
       }
@@ -287,9 +296,17 @@ function formatPLSQL(src) {
           caseDepth--;
           if (nextUp === 'CASE') { app('CASE'); i++; }
         } else {
+          const isBlockEnd = !['IF', 'LOOP', 'CASE'].includes(nextUp);
           dropTrailingBlank();
           flush();
-          level = Math.max(0, level - 1);
+          if (isBlockEnd && beginStack.length > 0) {
+            const frame = beginStack.pop();
+            level = frame.level;
+            inExceptionSection = frame.inExceptionSection;
+            exceptionHandlerLevel = frame.exceptionHandlerLevel;
+          } else {
+            level = Math.max(0, level - 1);
+          }
           cur = 'END';
           if (nextUp === 'IF' || nextUp === 'LOOP' || nextUp === 'CASE') {
             cur += ' ' + nextUp; i++;
@@ -308,9 +325,14 @@ function formatPLSQL(src) {
           // In declaration section, EXCEPTION is a variable type (e.g. MY_ERR EXCEPTION;)
           app(up);
         } else {
+          const beginLevel = beginStack.length > 0 ? beginStack[beginStack.length - 1].level : 0;
           dropTrailingBlank();
-          flush(); level = Math.max(0, level - 1);
-          cur = 'EXCEPTION'; flush(); level++;
+          flush();
+          level = beginLevel;
+          cur = 'EXCEPTION'; flush();
+          level = beginLevel + 1;
+          inExceptionSection = true;
+          exceptionHandlerLevel = beginLevel + 1;
         }
         break;
       }
@@ -331,7 +353,13 @@ function formatPLSQL(src) {
       case 'FOR':   { flush(); cur = 'FOR'; break; }
       case 'WHILE': { flush(); cur = 'WHILE'; break; }
       case 'LOOP':  { cur = cur.trimEnd() + ' LOOP'; flush(); level++; break; }
-      case 'WHEN':  { flush(); cur = 'WHEN'; break; }
+      case 'WHEN': {
+        // Inside exception section, each WHEN resets to handler base level.
+        // Guard with !cur.trim() to skip EXIT WHEN (where cur holds 'EXIT').
+        if (inExceptionSection && !cur.trim()) level = exceptionHandlerLevel;
+        flush(); cur = 'WHEN';
+        break;
+      }
 
       // ── DML statements ──────────────────────────────────────────────────
       case 'SELECT': {
