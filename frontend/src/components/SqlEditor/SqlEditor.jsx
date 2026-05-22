@@ -306,11 +306,14 @@ export default function SqlEditor({ tab }) {
   function navigateToObject(schemaName, objectName, objectType) {
     const s = schemaName || schema;
     if (!s || !objectName) return;
+    const tabType = ['TABLE', 'VIEW'].includes(objectType) ? 'table'
+      : objectType === 'SEQUENCE' ? 'sequence'
+      : objectType === 'SYNONYM' ? 'synonym' : 'source';
     openTab(dispatch, state, {
       id: `${objectType}-${connId}-${s}-${objectName}`,
-      type: 'table', title: objectName,
+      type: tabType, title: objectName,
       connectionId: connId,
-      content: { schema: s, objectType, name: objectName },
+      content: { schema: s, objectType, name: objectName, activeTab: tabType === 'table' ? 'columns' : 'source' },
     });
   }
 
