@@ -107,7 +107,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        setSelectedNode({ key, code: map[key] });
+        setSelectedNode({ key, code: formatSQL(map[key]) || map[key] });
       });
     });
   }, []);

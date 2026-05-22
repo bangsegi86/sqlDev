@@ -2,6 +2,13 @@
 const KWPAD = 7;
 const padKW = kw => kw.padEnd(KWPAD);
 
+// SQL keywords that may precede ( without being a function call — keep the space before (
+const SQL_KW_BEFORE_PAREN = new Set([
+  'IN','NOT','IS','BETWEEN','LIKE','EXISTS','ANY','ALL','SOME',
+  'VALUES','USING','PARTITION','OVER','ON','WHERE','AND','OR',
+  'SELECT','FROM','SET','DEFAULT','THEN','ELSE','WHEN',
+]);
+
 export function formatSQL(sql) {
   if (!sql?.trim()) return sql;
   try { return formatPLSQL(sql); } catch { return sql; }
@@ -176,9 +183,13 @@ function formatPLSQL(src) {
           flush();                              // output the (...( line with outer indent
           baseIndent = ' '.repeat(parenCol + 1); // inner content aligns right after (
         } else {
-          // Function call: trim trailing space before (
+          // Function call: trim trailing space before (.
+          // SQL keywords (IN, NOT, VALUES, …) precede ( without being function calls — keep space.
           const prevTok = toks[i - 1];
-          if (prevTok?.t === 'W' || prevTok?.t === 'NUM') cur = cur.trimEnd();
+          if (prevTok?.t === 'NUM' ||
+              (prevTok?.t === 'W' && !SQL_KW_BEFORE_PAREN.has(prevTok.v.toUpperCase()))) {
+            cur = cur.trimEnd();
+          }
           cur += '(';
           funcParenDepth++;
         }
@@ -208,9 +219,8 @@ function formatPLSQL(src) {
         cur = cur.trimEnd() + ';';
         flush();
         inSelectList = false; inFromList = false; caseDepth = 0;
-        // Insert blank line between statements inside a block body.
-        // Skip: pure SQL (level=0), declare section (variable declarations), already blank.
-        if (level > 0 && !inDeclSection && lines.length > 0 && lines[lines.length - 1] !== '') {
+        // Insert blank line between statements (except inside declaration sections).
+        if (!inDeclSection && lines.length > 0 && lines[lines.length - 1] !== '') {
           lines.push('');
         }
       } else if (p === ',') {
