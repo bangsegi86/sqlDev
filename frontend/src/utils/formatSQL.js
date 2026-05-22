@@ -4,15 +4,16 @@ import { format } from 'sql-formatter';
 const KWPAD = 7;
 const padKW = kw => kw.padEnd(KWPAD);
 
+// SQL keywords that may precede ( without being a function call — keep the space before (
+const SQL_KW_BEFORE_PAREN = new Set([
+  'IN','NOT','IS','BETWEEN','LIKE','EXISTS','ANY','ALL','SOME',
+  'VALUES','USING','PARTITION','OVER','ON','WHERE','AND','OR',
+  'SELECT','FROM','SET','DEFAULT','THEN','ELSE','WHEN',
+]);
+
 export function formatSQL(sql) {
   if (!sql?.trim()) return sql;
-  const isPLSQL = /\b(BEGIN|DECLARE|PROCEDURE|FUNCTION|PACKAGE|TRIGGER)\b/i.test(sql);
-  if (isPLSQL) {
-    try { return formatPLSQL(sql); } catch { return sql; }
-  }
-  try {
-    return format(sql, { language: 'sql', tabWidth: 2, keywordCase: 'upper', linesBetweenQueries: 1 });
-  } catch { return sql; }
+  try { return formatPLSQL(sql); } catch { return sql; }
 }
 
 // ── Tokenizer ──────────────────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ function tokenize(src) {
 // ── PL/SQL Formatter ───────────────────────────────────────────────────────────
 
 function formatPLSQL(src) {
-  const TAB = '  ';
+  const TAB = '    ';  // 4-space indent
   const toks = tokenize(src).filter(t => t.t !== 'WS');
   const UP = tok => tok?.t === 'W' ? tok.v.toUpperCase() : null;
 
@@ -94,10 +95,19 @@ function formatPLSQL(src) {
   let funcParenDepth = 0;   // depth of function-call parens (not subquery parens)
   let inSelectList = false;
   let inFromList = false;
+  let inSetList = false;
+  let inIfCondition = false;
+  let insertContext = null;   // null | 'header' | 'cols' | 'after_cols' | 'vals_next' | 'vals'
   let procHeaderSeen = false;
   let inDeclSection = false;
 
-  const parenStack = [];      // 'func' | 'subquery' per open paren
+  // Each BEGIN pushes { level, inExceptionSection, exceptionHandlerLevel } so END can
+  // restore the exact level rather than blindly decrementing.
+  const beginStack = [];
+  let inExceptionSection = false;
+  let exceptionHandlerLevel = 0;
+
+  const parenStack = [];      // 'func' | 'subquery' | 'insertList' per open paren
   const subqueryCtxStack = []; // saved state per open subquery paren
 
   function getIndent() {
@@ -111,8 +121,14 @@ function formatPLSQL(src) {
     cur = '';
   }
 
+  // Remove a trailing blank line (added after ';') before structural keywords
+  // so there's no extra blank before END / ELSE / ELSIF / EXCEPTION
+  function dropTrailingBlank() {
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  }
+
   function app(s) {
-    const needsSpace = cur && !cur.endsWith(' ') && !cur.endsWith('(');
+    const needsSpace = cur && !cur.endsWith(' ') && !cur.endsWith('(') && !cur.endsWith('.');
     const noSpaceBefore = s === ')' || s === ',' || s === ';' || s === '.';
     if (needsSpace && !noSpaceBefore) cur += ' ';
     cur += s;
@@ -126,8 +142,21 @@ function formatPLSQL(src) {
 
     // ── Comments ──────────────────────────────────────────────────────────
     if (tok.t === 'CMT') {
-      flush();
-      lines.push(getIndent() + tok.v.trim());
+      if (!cur.trim()) {
+        // Standalone comment: own line
+        flush();
+        lines.push(getIndent() + curPrefix + tok.v.trim());
+      } else if (cur.trim() === ',') {
+        // cur holds ONLY the leading comma — no identifier accumulated yet.
+        // In comma-first style this means the comment was written right after a
+        // comma on a new line, which is unusual; attach to the previously flushed line.
+        if (lines.length > 0) lines[lines.length - 1] += ' ' + tok.v.trim();
+      } else {
+        // Inline comment after real content (e.g. ", T1. ITM_CD --note"):
+        // keep on the same line as the accumulated content
+        cur = cur.trimEnd() + ' ' + tok.v.trim();
+        flush();
+      }
       continue;
     }
 
@@ -141,8 +170,8 @@ function formatPLSQL(src) {
       const p = tok.v;
       if (p === '(') {
         const sub = isSubquery(i);
-        parenStack.push(sub ? 'subquery' : 'func');
         if (sub) {
+          parenStack.push('subquery');
           // Ensure space before ( (it's not a function call)
           if (cur && !cur.endsWith(' ') && !cur.endsWith('(')) cur += ' ';
           // Compute column of ( using the CURRENT (outer) indent
@@ -158,16 +187,36 @@ function formatPLSQL(src) {
           inSelectList = false; inFromList = false; caseDepth = 0;
           flush();                              // output the (...( line with outer indent
           baseIndent = ' '.repeat(parenCol + 1); // inner content aligns right after (
+        } else if (funcParenDepth === 0 && (insertContext === 'header' || insertContext === 'vals_next')) {
+          // INSERT column list or VALUES list — each item on its own line
+          parenStack.push('insertList');
+          insertContext = insertContext === 'header' ? 'cols' : 'vals';
+          if (cur && !cur.endsWith(' ') && !cur.endsWith('(')) cur += ' ';
+          cur += '(';
+          flush();
+          level++;
         } else {
-          // Function call: trim trailing space before (
+          parenStack.push('func');
+          // Function call: trim trailing space before (.
+          // SQL keywords (IN, NOT, VALUES, …) precede ( without being function calls — keep space.
           const prevTok = toks[i - 1];
-          if (prevTok?.t === 'W' || prevTok?.t === 'NUM') cur = cur.trimEnd();
+          if (prevTok?.t === 'NUM' ||
+              (prevTok?.t === 'W' && !SQL_KW_BEFORE_PAREN.has(prevTok.v.toUpperCase()))) {
+            cur = cur.trimEnd();
+          }
           cur += '(';
           funcParenDepth++;
         }
       } else if (p === ')') {
         const typ = parenStack.length > 0 ? parenStack.pop() : 'func';
-        if (typ === 'subquery') {
+        if (typ === 'insertList') {
+          if (cur.trim()) flush();
+          level = Math.max(0, level - 1);
+          cur = ')';
+          flush();
+          if (insertContext === 'cols') insertContext = 'after_cols';
+          else insertContext = null;
+        } else if (typ === 'subquery') {
           flush();
           const ctx = subqueryCtxStack.pop();
           baseIndent   = ctx?.savedBaseIndent ?? '';
@@ -191,12 +240,23 @@ function formatPLSQL(src) {
         cur = cur.trimEnd() + ';';
         flush();
         inSelectList = false; inFromList = false; caseDepth = 0;
+        inSetList = false; insertContext = null; inIfCondition = false;
+        // Insert blank line between statements (except inside declaration sections).
+        if (!inDeclSection && lines.length > 0 && lines[lines.length - 1] !== '') {
+          lines.push('');
+        }
       } else if (p === ',') {
+        const topParen = parenStack.length > 0 ? parenStack[parenStack.length - 1] : null;
         if (funcParenDepth > 0 || caseDepth > 0) {
           // Inside function call or CASE expression: inline comma
           cur = cur.trimEnd() + ', ';
-        } else if (inSelectList || inFromList) {
-          // SELECT column list or comma-join table list: comma-first style
+        } else if (topParen === 'insertList') {
+          // INSERT column list or VALUES list: each item on its own line
+          cur = cur.trimEnd();
+          flush();
+          cur = ', ';
+        } else if (inSelectList || inFromList || inSetList) {
+          // SELECT column list, comma-join table list, or UPDATE SET list: comma-first style
           cur = cur.trimEnd();
           flush();
           curPrefix = '     ';
@@ -252,6 +312,7 @@ function formatPLSQL(src) {
       // ── Block openers ──────────────────────────────────────────────────
       case 'DECLARE': {
         flush(); cur = 'DECLARE'; flush(); level++;
+        inDeclSection = true;
         break;
       }
       case 'BEGIN': {
@@ -260,6 +321,8 @@ function formatPLSQL(src) {
           level = Math.max(0, level - 1);
           inDeclSection = false;
         }
+        beginStack.push({ level, inExceptionSection, exceptionHandlerLevel });
+        inExceptionSection = false;
         cur = 'BEGIN'; flush(); level++;
         break;
       }
@@ -271,8 +334,17 @@ function formatPLSQL(src) {
           caseDepth--;
           if (nextUp === 'CASE') { app('CASE'); i++; }
         } else {
+          const isBlockEnd = !['IF', 'LOOP', 'CASE'].includes(nextUp);
+          dropTrailingBlank();
           flush();
-          level = Math.max(0, level - 1);
+          if (isBlockEnd && beginStack.length > 0) {
+            const frame = beginStack.pop();
+            level = frame.level;
+            inExceptionSection = frame.inExceptionSection;
+            exceptionHandlerLevel = frame.exceptionHandlerLevel;
+          } else {
+            level = Math.max(0, level - 1);
+          }
           cur = 'END';
           if (nextUp === 'IF' || nextUp === 'LOOP' || nextUp === 'CASE') {
             cur += ' ' + nextUp; i++;
@@ -287,27 +359,46 @@ function formatPLSQL(src) {
       }
 
       case 'EXCEPTION': {
-        flush(); level = Math.max(0, level - 1);
-        cur = 'EXCEPTION'; flush(); level++;
+        if (inDeclSection) {
+          // In declaration section, EXCEPTION is a variable type (e.g. MY_ERR EXCEPTION;)
+          app(up);
+        } else {
+          const beginLevel = beginStack.length > 0 ? beginStack[beginStack.length - 1].level : 0;
+          dropTrailingBlank();
+          flush();
+          level = beginLevel;
+          cur = 'EXCEPTION'; flush();
+          level = beginLevel + 1;
+          inExceptionSection = true;
+          exceptionHandlerLevel = beginLevel + 1;
+        }
         break;
       }
 
       // ── Control flow ────────────────────────────────────────────────────
-      case 'IF':    { flush(); cur = 'IF'; break; }
-      case 'ELSIF': { flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; break; }
+      case 'IF':    { flush(); cur = 'IF'; inIfCondition = true; break; }
+      case 'ELSIF': { dropTrailingBlank(); flush(); level = Math.max(0, level - 1); cur = 'ELSIF'; inIfCondition = true; break; }
       case 'ELSE':  {
+        dropTrailingBlank();
         flush(); level = Math.max(0, level - 1);
         cur = 'ELSE'; flush(); level++;
         break;
       }
       case 'THEN': {
+        inIfCondition = false;
         cur = cur.trimEnd() + ' THEN'; flush(); level++;
         break;
       }
       case 'FOR':   { flush(); cur = 'FOR'; break; }
-      case 'WHILE': { flush(); cur = 'WHILE'; break; }
-      case 'LOOP':  { cur = cur.trimEnd() + ' LOOP'; flush(); level++; break; }
-      case 'WHEN':  { flush(); cur = 'WHEN'; break; }
+      case 'WHILE': { flush(); cur = 'WHILE'; inIfCondition = true; break; }
+      case 'LOOP':  { inIfCondition = false; cur = cur.trimEnd() + ' LOOP'; flush(); level++; break; }
+      case 'WHEN': {
+        // Inside exception section, each WHEN resets to handler base level.
+        // Guard with !cur.trim() to skip EXIT WHEN (where cur holds 'EXIT').
+        if (inExceptionSection && !cur.trim()) level = exceptionHandlerLevel;
+        flush(); cur = 'WHEN';
+        break;
+      }
 
       // ── DML statements ──────────────────────────────────────────────────
       case 'SELECT': {
@@ -315,8 +406,8 @@ function formatPLSQL(src) {
         else { flush(); inSelectList = true; inFromList = false; cur = padKW('SELECT'); }
         break;
       }
-      case 'INSERT': { flush(); inSelectList = false; inFromList = false; cur = 'INSERT'; break; }
-      case 'UPDATE': { flush(); inSelectList = false; inFromList = false; cur = 'UPDATE'; break; }
+      case 'INSERT': { flush(); inSelectList = false; inFromList = false; inSetList = false; cur = 'INSERT'; insertContext = 'header'; break; }
+      case 'UPDATE': { flush(); inSelectList = false; inFromList = false; inSetList = false; insertContext = null; cur = 'UPDATE'; break; }
       case 'DELETE': { flush(); inSelectList = false; inFromList = false; cur = 'DELETE'; break; }
       case 'MERGE':  { flush(); inSelectList = false; inFromList = false; cur = 'MERGE'; break; }
 
@@ -342,23 +433,23 @@ function formatPLSQL(src) {
       }
       case 'WHERE': {
         if (funcParenDepth > 0) { app('WHERE'); break; }
-        inFromList = false;
+        inFromList = false; inSetList = false;
         if (cur.trim()) flush();
         cur = padKW('WHERE');
         break;
       }
       case 'AND': {
-        if (funcParenDepth > 0 || caseDepth > 0) { app('AND'); break; }
+        if (funcParenDepth > 0 || caseDepth > 0 || inIfCondition) { app('AND'); break; }
         flush(); cur = padKW('AND');
         break;
       }
       case 'OR': {
-        if (funcParenDepth > 0 || caseDepth > 0) { app('OR'); break; }
+        if (funcParenDepth > 0 || caseDepth > 0 || inIfCondition) { app('OR'); break; }
         flush(); cur = padKW('OR');
         break;
       }
-      case 'SET':    { if (funcParenDepth > 0) { app('SET'); break; } inFromList = false; if (cur.trim()) flush(); cur = padKW('SET'); break; }
-      case 'VALUES': { if (funcParenDepth > 0) { app('VALUES'); break; } if (cur.trim()) flush(); cur = padKW('VALUES'); break; }
+      case 'SET':    { if (funcParenDepth > 0) { app('SET'); break; } inFromList = false; inSetList = true; if (cur.trim()) flush(); cur = padKW('SET'); break; }
+      case 'VALUES': { if (funcParenDepth > 0) { app('VALUES'); break; } if (cur.trim()) flush(); cur = padKW('VALUES'); if (insertContext === 'header' || insertContext === 'after_cols') insertContext = 'vals_next'; break; }
       case 'HAVING': { if (funcParenDepth > 0) { app('HAVING'); break; } if (cur.trim()) flush(); cur = padKW('HAVING'); break; }
       case 'UNION':  { if (funcParenDepth > 0) { app('UNION'); break; } inFromList = false; flush(); cur = padKW('UNION'); break; }
       case 'GROUP': {
