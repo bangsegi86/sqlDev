@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
 import { useCopy } from '../../utils/clipboard.js';
 import { renderHighlighted } from '../../utils/sqlHighlight.js';
+import { formatSQL } from '../../utils/formatSQL.js';
 
 const NODE_TYPE_LABEL = {
   SEL: '📖 SELECT', DML: '✏️ DML', CALL: '🔧 프로시저 호출', SYS: '📦 시스템 호출',
@@ -25,6 +26,22 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
   // Code panel state
   const [selectedNode, setSelectedNode] = useState(null); // { key, code }
+  const [panelWidth, setPanelWidth] = useState(340);
+
+  function onPanelResizeMouseDown(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidth;
+    function onMove(ev) {
+      setPanelWidth(Math.max(220, Math.min(700, startW + (startX - ev.clientX))));
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   // Pan mode: 'toggle' button or spacebar hold
   const [panMode, setPanMode] = useState(false);   // locked by button
@@ -261,20 +278,38 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
             {/* Code side panel */}
             {selectedNode && (
               <div style={{
-                width: 340, flexShrink: 0,
+                position: 'relative',
+                width: panelWidth, flexShrink: 0,
                 borderLeft: '1px solid var(--border)',
                 display: 'flex', flexDirection: 'column',
                 background: 'var(--bg-panel)',
                 overflow: 'hidden',
               }}>
+                {/* Resize handle on left edge */}
+                <div
+                  onMouseDown={onPanelResizeMouseDown}
+                  style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+                    cursor: 'col-resize', zIndex: 10, background: 'transparent',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,193,255,0.45)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                />
+
                 {/* Panel header */}
                 <div style={{
                   padding: '7px 12px', borderBottom: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
                 }}>
-                  <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1 }}>
+                  <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {getNodeTypeLabel(selectedNode.key)}
                   </span>
+                  <button
+                    onClick={() => setSelectedNode(n => n ? { ...n, code: formatSQL(n.code) } : n)}
+                    style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
+                    title="줄 맞추기"
+                  >≡</button>
                   <button
                     onClick={() => navigator.clipboard?.writeText(selectedNode.code)}
                     style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
@@ -287,17 +322,9 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
                   >✕</button>
                 </div>
 
-                {/* Code content — SQL syntax highlighted */}
-                <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
-                  <pre style={{
-                    margin: 0, padding: '12px 14px',
-                    fontFamily: 'var(--code-font)', fontSize: 12,
-                    color: 'var(--text-primary)', lineHeight: 1.7,
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    background: 'transparent',
-                  }}>
-                    {renderHighlighted(selectedNode.code)}
-                  </pre>
+                {/* Code content — foldable + SQL highlighted */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  <FoldableCode code={selectedNode.code} />
                 </div>
 
                 <div style={{ padding: '6px 12px', borderTop: '1px solid var(--border)', fontSize: 10, color: 'var(--text-dim)' }}>
@@ -329,6 +356,93 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     </div>
   );
 }
+
+// ── Foldable code viewer ───────────────────────────────────────────────────────
+
+const FOLD_TRIGGER = /\b(THEN|LOOP|ELSE|EXCEPTION|BEGIN)\s*$/i;
+
+function getIndentLen(line) {
+  const m = line.match(/^(\s*)/);
+  return m ? m[1].length : 0;
+}
+
+function buildFoldableSet(lines) {
+  const s = new Set();
+  for (let i = 0; i < lines.length - 1; i++) {
+    const stripped = lines[i].trimEnd().replace(/--.*$/, '').trimEnd();
+    if (!FOLD_TRIGGER.test(stripped)) continue;
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === '') j++;
+    if (j < lines.length && getIndentLen(lines[j]) > getIndentLen(lines[i])) s.add(i);
+  }
+  return s;
+}
+
+function FoldableCode({ code }) {
+  const lines = useMemo(() => code ? code.split('\n') : [], [code]);
+  const foldableSet = useMemo(() => buildFoldableSet(lines), [lines]);
+  const [folded, setFolded] = useState(new Set());
+
+  // Reset fold state when code changes (e.g. after format)
+  useEffect(() => { setFolded(new Set()); }, [code]);
+
+  const toggle = useCallback((idx) => {
+    setFolded(prev => {
+      const n = new Set(prev);
+      if (n.has(idx)) n.delete(idx); else n.add(idx);
+      return n;
+    });
+  }, []);
+
+  // Build visible line list respecting fold state
+  const visible = [];
+  let skipDepth = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const ind = getIndentLen(lines[i]);
+    if (skipDepth >= 0) {
+      if (lines[i].trim() === '' || ind > skipDepth) continue;
+      skipDepth = -1;
+    }
+    const isF = foldableSet.has(i);
+    const isCol = isF && folded.has(i);
+    if (isCol) skipDepth = ind;
+    visible.push({ lineIdx: i, isFoldable: isF, isCollapsed: isCol });
+  }
+
+  return (
+    <pre style={{
+      margin: 0, padding: '10px 0',
+      fontFamily: 'var(--code-font)', fontSize: 12,
+      color: 'var(--text-primary)', lineHeight: 1.7,
+      background: 'transparent',
+    }}>
+      {visible.map(({ lineIdx, isFoldable, isCollapsed }) => {
+        const line = lines[lineIdx];
+        return (
+          <div key={lineIdx} style={{ display: 'flex', alignItems: 'flex-start' }}>
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 18, flexShrink: 0, color: '#4fc1ff', fontSize: 8,
+                cursor: isFoldable ? 'pointer' : 'default',
+                userSelect: 'none', paddingTop: 1,
+              }}
+              onClick={isFoldable ? () => toggle(lineIdx) : undefined}
+            >
+              {isFoldable ? (isCollapsed ? '▶' : '▼') : ''}
+            </span>
+            <span style={{ flex: 1, paddingRight: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {renderHighlighted(line)}
+              {isCollapsed && <span style={{ color: '#555', fontStyle: 'italic' }}> ···</span>}
+            </span>
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 function AnalysisSummary({ result }) {
   const { params, reads, writes, calls, exceptions, cursors, variables } = result;
