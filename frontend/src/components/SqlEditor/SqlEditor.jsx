@@ -176,8 +176,14 @@ export default function SqlEditor({ tab }) {
         textareaRef.current.style.pointerEvents = '';
       }
     }
-    function onKeyDown(e) { if (e.key === 'Control') enableCtrl(); }
-    function onKeyUp(e)   { if (e.key === 'Control') disableCtrl(); }
+    function onKeyDown(e) {
+      if (e.key === 'Control') {
+        enableCtrl();
+        // Pre-load object cache so underlines appear immediately
+        if (acItems.length === 0) loadAcItems();
+      }
+    }
+    function onKeyUp(e) { if (e.key === 'Control') disableCtrl(); }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', disableCtrl);
@@ -223,7 +229,15 @@ export default function SqlEditor({ tab }) {
     setAcItems([]);
   }, [connId, schema]);
 
-  const highlightedSql = useMemo(() => renderHighlighted(sql), [sql]);
+  const navigableNames = useMemo(
+    () => new Set(acItems.map(it => it.name.toUpperCase())),
+    [acItems]
+  );
+
+  const highlightedSql = useMemo(
+    () => renderHighlighted(sql, navigableNames),
+    [sql, navigableNames]
+  );
 
   function syncScroll() {
     if (preRef.current && textareaRef.current) {

@@ -246,18 +246,32 @@ function nextNonWsIs(raw, j, ch) {
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
 
-// Returns React children for a <pre> or similar element
-export function renderHighlighted(src) {
+// Returns React children for a <pre> or similar element.
+// navigableNames: optional Set of uppercase object names that should get the
+// ctrl-hover underline class (tables, procedures, functions in the schema cache).
+export function renderHighlighted(src, navigableNames) {
   const tokens = highlightTokens(src);
-  return tokens.map((tok, i) =>
-    tok.color
-      ? React.createElement('span', {
-          key: i,
-          style: { color: tok.color },
-          className: tok.color === SQL_COLORS.table ? 'sql-table-token' : undefined,
-        }, tok.value)
-      : tok.value
-  );
+  const navSet = (navigableNames instanceof Set && navigableNames.size > 0) ? navigableNames : null;
+  const wordRe = /^[A-Za-z_$#][A-Za-z0-9_$#]*$/;
+
+  return tokens.map((tok, i) => {
+    // A token is navigable if it's already table-colored, OR if its value
+    // exists in the schema object cache (covers procs/funcs and bare names).
+    const navigable =
+      tok.color === SQL_COLORS.table ||
+      (navSet && wordRe.test(tok.value) && navSet.has(tok.value.toUpperCase()));
+
+    const className = navigable ? 'sql-table-token' : undefined;
+
+    if (tok.color || className) {
+      return React.createElement('span', {
+        key: i,
+        style: tok.color ? { color: tok.color } : undefined,
+        className,
+      }, tok.value);
+    }
+    return tok.value;
+  });
 }
 
 // Returns { schema: string|null, table: string } for the table token under charPos,
