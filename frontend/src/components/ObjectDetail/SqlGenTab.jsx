@@ -91,15 +91,6 @@ function CopyBtn({ text }) {
 
 function bindVar(name) { return ':' + name.toLowerCase(); }
 
-function typeHint(col) {
-  const dt = col.DATA_TYPE || '';
-  const prec = col.DATA_PRECISION != null && col.DATA_SCALE != null
-    ? `(${col.DATA_PRECISION},${col.DATA_SCALE})`
-    : col.DATA_LENGTH ? `(${col.DATA_LENGTH})` : '';
-  const nullable = col.NULLABLE === 'N' ? ' NOT NULL' : '';
-  return `-- ${dt}${prec}${nullable}`;
-}
-
 function pad(name, maxLen) { return name.padEnd(maxLen); }
 
 function genInsert(fullName, cols) {
@@ -110,7 +101,7 @@ function genInsert(fullName, cols) {
     `  ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
   ).join('\n');
   const valLines = cols.map((c, i) =>
-    `  ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxLen + 1)} ${typeHint(c)}`
+    `  ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxLen + 1)}`
   ).join('\n');
 
   return [
@@ -130,7 +121,7 @@ function genUpdate(fullName, pkCols, nonPkCols, allCols) {
   const maxSet = Math.max(...setCols.map(c => c.COLUMN_NAME.length));
 
   const setLines = setCols.map((c, i) =>
-    `${i === 0 ? '   SET' : '      ,'} ${pad(c.COLUMN_NAME, maxSet)} = ${pad(bindVar(c.COLUMN_NAME), maxSet + 1)} ${typeHint(c)}`
+    `${i === 0 ? '   SET' : '      ,'} ${pad(c.COLUMN_NAME, maxSet)} = ${pad(bindVar(c.COLUMN_NAME), maxSet + 1)}`
   ).join('\n');
 
   if (!pkCols.length) {
@@ -183,7 +174,7 @@ function genMerge(fullName, pkCols, nonPkCols, allCols) {
   const updCols = nonPkCols.length > 0 ? nonPkCols : allCols;
   const maxUpd = Math.max(...updCols.map(c => c.COLUMN_NAME.length));
   const updLines = updCols.map((c, i) =>
-    `          ${i === 0 ? 'SET' : '  ,'} ${T}.${pad(c.COLUMN_NAME, maxUpd)} = ${pad(bindVar(c.COLUMN_NAME), maxUpd + 1)} ${typeHint(c)}`
+    `          ${i === 0 ? 'SET' : '  ,'} ${T}.${pad(c.COLUMN_NAME, maxUpd)} = ${pad(bindVar(c.COLUMN_NAME), maxUpd + 1)}`
   ).join('\n');
 
   // INSERT: 전체 컬럼
@@ -192,7 +183,7 @@ function genMerge(fullName, pkCols, nonPkCols, allCols) {
     `          ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
   ).join('\n');
   const insValLines = allCols.map((c, i) =>
-    `          ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxIns + 1)} ${typeHint(c)}`
+    `          ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxIns + 1)}`
   ).join('\n');
 
   return [

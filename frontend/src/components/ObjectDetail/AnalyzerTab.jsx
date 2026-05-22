@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
 import { useCopy } from '../../utils/clipboard.js';
+import { renderHighlighted } from '../../utils/sqlHighlight.js';
 
 const NODE_TYPE_LABEL = {
   SEL: '📖 SELECT', DML: '✏️ DML', CALL: '🔧 프로시저 호출', SYS: '📦 시스템 호출',
@@ -286,7 +287,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
                   >✕</button>
                 </div>
 
-                {/* Code content */}
+                {/* Code content — SQL syntax highlighted */}
                 <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
                   <pre style={{
                     margin: 0, padding: '12px 14px',
@@ -295,7 +296,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
                     whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                     background: 'transparent',
                   }}>
-                    {selectedNode.code}
+                    {renderHighlighted(selectedNode.code)}
                   </pre>
                 </div>
 
