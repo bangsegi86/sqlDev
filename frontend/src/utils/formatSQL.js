@@ -243,7 +243,7 @@ function formatPLSQL(src) {
         cur = cur.trimEnd() + ';';
         flush();
         inSelectList = false; inFromList = false; caseDepth = 0;
-        inSetList = false; insertContext = null; inIfCondition = false;
+        inSetList = false; insertContext = null; inIfCondition = false; procHeaderSeen = false;
         // Insert blank line between statements (except inside declaration sections).
         if (!inDeclSection && lines.length > 0 && lines[lines.length - 1] !== '') {
           lines.push('');
@@ -316,10 +316,12 @@ function formatPLSQL(src) {
       case 'DECLARE': {
         flush(); cur = 'DECLARE'; flush(); level++;
         inDeclSection = true;
+        procHeaderSeen = false;
         break;
       }
       case 'BEGIN': {
         flush();
+        procHeaderSeen = false;
         if (inDeclSection) {
           level = Math.max(0, level - 1);
           inDeclSection = false;
@@ -554,10 +556,10 @@ function formatPLSQL(src) {
       case 'PIPE': { flush(); cur = up; break; }
 
       case 'NULL': {
-        const prevTok = toks[i - 1];
-        const prevUp = UP(prevTok);
-        if (!cur.trim() || ['IS', 'NOT'].includes(prevUp)) app('NULL');
-        else { flush(); cur = 'NULL'; }
+        // If cur is empty this is a standalone NULL statement (e.g. NULL; after THEN/ELSE).
+        // Otherwise NULL is always a value — keep it inline (:= NULL, IS NULL, RETURN NULL, etc.)
+        if (!cur.trim()) cur = 'NULL';
+        else app('NULL');
         break;
       }
 
