@@ -55,6 +55,20 @@ function getWordAtCursor(text, pos) {
   return { word, wordStart: start };
 }
 
+// Get the full identifier word that charPos falls inside (for Ctrl+click lookup)
+function getRawWordAtPos(text, charPos) {
+  if (!text) return '';
+  let pos = charPos;
+  // If not on a word char, try one step left (click lands just after the word)
+  if (pos >= text.length || !/[\w$#]/.test(text[pos])) pos = charPos - 1;
+  if (pos < 0 || !/[\w$#]/.test(text[pos])) return '';
+  let start = pos;
+  let end   = pos;
+  while (start > 0    && /[\w$#]/.test(text[start - 1])) start--;
+  while (end   < text.length - 1 && /[\w$#]/.test(text[end + 1]))   end++;
+  return text.slice(start, end + 1).toUpperCase();
+}
+
 // Reusable canvas for text width measurement (avoids DOM mirror div bugs)
 const _measureCanvas = document.createElement('canvas');
 
@@ -287,20 +301,29 @@ export default function SqlEditor({ tab }) {
   }
 
   async function handleObjectNavigation(charPos) {
-    // 1. Try table/view
+    // 1. Try table/view (SQL-context colored token)
     const tableResult = getTableAtCursor(sql, charPos);
     if (tableResult) {
       navigateToObject(tableResult.schema, tableResult.table, 'TABLE');
       return;
     }
-    // 2. Try procedure / function
+    // 2. Try procedure / function (builtin-colored or after EXECUTE)
     const callResult = getCallableAtCursor(sql, charPos);
     if (callResult) {
       const items = acItems.length > 0 ? acItems : await loadAcItems();
       const found = items.find(it => it.name.toUpperCase() === callResult.name);
       if (found && (found.type === 'PROCEDURE' || found.type === 'FUNCTION')) {
         navigateToObject(callResult.schema, found.name, found.type);
+        return;
       }
+    }
+    // 3. Fallback: plain identifier — look up directly in object cache
+    //    Handles the case where user types just "TABLE_NAME" or "PROC_NAME"
+    const word = getRawWordAtPos(sql, charPos);
+    if (word) {
+      const items = acItems.length > 0 ? acItems : await loadAcItems();
+      const found = items.find(it => it.name.toUpperCase() === word);
+      if (found) navigateToObject(null, found.name, found.type);
     }
   }
 
