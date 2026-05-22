@@ -304,9 +304,14 @@ function formatPLSQL(src) {
       }
 
       case 'EXCEPTION': {
-        dropTrailingBlank();
-        flush(); level = Math.max(0, level - 1);
-        cur = 'EXCEPTION'; flush(); level++;
+        if (inDeclSection) {
+          // In declaration section, EXCEPTION is a variable type (e.g. MY_ERR EXCEPTION;)
+          app(up);
+        } else {
+          dropTrailingBlank();
+          flush(); level = Math.max(0, level - 1);
+          cur = 'EXCEPTION'; flush(); level++;
+        }
         break;
       }
 
