@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { useApp } from '../../store/AppContext.jsx';
 import TabBar from './TabBar.jsx';
 import SqlEditor from '../SqlEditor/SqlEditor.jsx';
@@ -9,7 +9,15 @@ import SequenceDetail from '../ObjectDetail/SequenceDetail.jsx';
 export default function RightPanel() {
   const { state } = useApp();
   const { tabs, activeTabId } = state;
-  const activeTab = tabs.find(t => t.id === activeTabId);
+
+  // Lazy-mount: only render a tab's content after it has been active at least once.
+  // Once mounted it stays in the DOM (hidden) so its state is preserved on tab switch.
+  const mountedRef = useRef(new Set());
+  if (activeTabId) mountedRef.current.add(activeTabId);
+  // Clean up IDs for closed tabs to avoid memory leak
+  for (const id of mountedRef.current) {
+    if (!tabs.find(t => t.id === id)) mountedRef.current.delete(id);
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -21,14 +29,17 @@ export default function RightPanel() {
             <div style={{ fontSize: 14 }}>연결을 선택하고 오브젝트를 클릭하거나 + 버튼으로 SQL 에디터를 여세요</div>
           </div>
         )}
-        {tabs.map(tab => (
-          <div
-            key={tab.id}
-            style={{ position: 'absolute', inset: 0, display: tab.id === activeTabId ? 'flex' : 'none', flexDirection: 'column' }}
-          >
-            <TabContent tab={tab} />
-          </div>
-        ))}
+        {tabs.map(tab => {
+          if (!mountedRef.current.has(tab.id)) return null;
+          return (
+            <div
+              key={tab.id}
+              style={{ position: 'absolute', inset: 0, display: tab.id === activeTabId ? 'flex' : 'none', flexDirection: 'column' }}
+            >
+              <TabContent tab={tab} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

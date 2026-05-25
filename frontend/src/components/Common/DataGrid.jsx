@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, memo } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
@@ -98,19 +98,7 @@ export default function DataGrid({
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.03)' }}>
-                <td style={tdStyle({ color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' })}>{rowOffset + i + 1}</td>
-                {columns.map(col => {
-                  const val = row[col];
-                  return (
-                    <td key={col} style={tdStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>
-                      {val === null || val === undefined
-                        ? <span className="null-val">(null)</span>
-                        : String(val)}
-                    </td>
-                  );
-                })}
-              </tr>
+              <DataRow key={i} row={row} columns={columns} index={i} rowOffset={rowOffset} />
             ))}
             {rows.length === 0 && (
               <tr>
@@ -155,6 +143,29 @@ export default function DataGrid({
     </div>
   );
 }
+
+// Static cell styles — created once at module level
+const TD_ROW_NUM = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', color: 'var(--text-dim)', textAlign: 'right', userSelect: 'none' };
+const TD_DATA    = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const TR_ODD     = { background: 'rgba(255,255,255,0.03)' };
+const TR_EVEN    = {};
+
+// Memoized row — skips re-render unless its own row data or columns change
+const DataRow = memo(function DataRow({ row, columns, index, rowOffset }) {
+  return (
+    <tr style={index % 2 === 0 ? TR_EVEN : TR_ODD}>
+      <td style={TD_ROW_NUM}>{rowOffset + index + 1}</td>
+      {columns.map(col => {
+        const val = row[col];
+        return (
+          <td key={col} style={TD_DATA}>
+            {val === null || val === undefined ? <span className="null-val">(null)</span> : String(val)}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
 
 function thStyle(extra = {}) {
   return {

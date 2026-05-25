@@ -140,8 +140,15 @@ export default function SqlEditor({ tab }) {
   const connId = tab.connectionId || state.activeConnectionId;
   const schema = state.selectedSchema?.schemaName;
 
+  // Debounce: save SQL to global tab state 500ms after last keystroke
+  // (avoids triggering full-app re-render on every keypress)
+  const saveTimerRef = useRef(null);
   useEffect(() => {
-    dispatch({ type: 'UPDATE_TAB_CONTENT', payload: { tabId: tab.id, content: { sql } } });
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      dispatch({ type: 'UPDATE_TAB_CONTENT', payload: { tabId: tab.id, content: { sql } } });
+    }, 500);
+    return () => clearTimeout(saveTimerRef.current);
   }, [sql]);
 
   useEffect(() => {
@@ -234,10 +241,17 @@ export default function SqlEditor({ tab }) {
     [acItems]
   );
 
-  const highlightedSql = useMemo(
-    () => renderHighlighted(sql, navigableNames),
-    [sql, navigableNames]
-  );
+  // Debounce highlight recomputation: expensive O(n) tokenization runs 80ms
+  // after the last keystroke so the textarea stays responsive while typing
+  const [highlightedSql, setHighlightedSql] = useState(() => renderHighlighted(sql, navigableNames));
+  const hlTimerRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(hlTimerRef.current);
+    hlTimerRef.current = setTimeout(() => {
+      setHighlightedSql(renderHighlighted(sql, navigableNames));
+    }, 80);
+    return () => clearTimeout(hlTimerRef.current);
+  }, [sql, navigableNames]);
 
   function syncScroll() {
     if (preRef.current && textareaRef.current) {
