@@ -29,7 +29,29 @@ const BUILTIN_FUNCTIONS = new Set([
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function removeComments(src) {
-  return src.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  // Replace comments with equal-length whitespace (preserving newlines) so that
+  // token character positions still map 1:1 onto the original source — required
+  // for node→source-line mapping in the flowchart.
+  return src
+    .replace(/--[^\n]*/g, m => ' '.repeat(m.length))
+    .replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '));
+}
+
+// Map a character offset to a 1-based line number using a precomputed line-start index
+function buildLineStarts(src) {
+  const starts = [0];
+  for (let i = 0; i < src.length; i++) if (src[i] === '\n') starts.push(i + 1);
+  return starts;
+}
+
+function posToLine(lineStarts, pos) {
+  if (pos == null) return null;
+  let lo = 0, hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= pos) lo = mid; else hi = mid - 1;
+  }
+  return lo + 1;
 }
 
 function sanitizeId(name) {
@@ -38,7 +60,36 @@ function sanitizeId(name) {
 
 function esc(s) {
   // Escape text for Mermaid node labels
-  return String(s || '').replace(/"/g, "'").replace(/[<>{}[\]]/g, ' ').replace(/\n/g, '\\n').trim().slice(0, 55);
+  return String(s || '').replace(/"/g, "'").replace(/[<>{}[\]]/g, ' ').replace(/\n/g, '\\n').trim().slice(0, 90);
+}
+
+// ── Statement-detail extractors (for richer node labels) ──────────────────────
+
+function extractWhere(text) {
+  const m = /\bWHERE\b\s+([\s\S]+?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b|\bRETURNING\b|\bCONNECT\s+BY\b|$)/i.exec(text);
+  if (!m) return '';
+  return m[1].replace(/\s+/g, ' ').trim().slice(0, 45);
+}
+
+function extractSelectInto(text) {
+  const m = /\bINTO\b\s+([\s\S]+?)\bFROM\b/i.exec(text);
+  if (!m) return '';
+  const vars = splitByComma(m[1]).map(v => v.trim()).filter(Boolean);
+  return vars.slice(0, 3).join(', ') + (vars.length > 3 ? ` 외 ${vars.length - 3}` : '');
+}
+
+function extractUpdateSetCols(text) {
+  const m = /\bSET\b([\s\S]+?)(?:\bWHERE\b|$)/i.exec(text);
+  if (!m) return [];
+  return splitByComma(m[1])
+    .map(a => (a.split(/:=|=/)[0] || '').trim().split('.').pop().trim())
+    .filter(c => c && /^[A-Za-z_]/.test(c));
+}
+
+function extractInsertCols(text) {
+  const m = /\bINTO\b\s+[A-Z_][A-Z0-9_$#.]*\s*\(([\s\S]+?)\)/i.exec(text);
+  if (!m) return [];
+  return splitByComma(m[1]).map(c => c.trim()).filter(Boolean);
 }
 
 function isSystemTable(name) {
@@ -139,6 +190,7 @@ function parseBlock(toks, i, stopWords) {
     const u = toks[i].u;
 
     if (u === 'IF') {
+      const sp = toks[i].pos;
       i++;
       const { text: cond, endIdx: ci } = collectCondition(toks, i, 'THEN');
       i = toks[ci]?.u === 'THEN' ? ci + 1 : ci;
@@ -160,35 +212,39 @@ function parseBlock(toks, i, stopWords) {
         branches.push({ label: '아니오 (FALSE)', condition: null, steps: [] });
       }
       if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'IF') i++; if (toks[i]?.t === 'SEMI') i++; }
-      steps.push({ type: 'if', condition: cond, branches, code: `IF ${cond} THEN` }); continue;
+      steps.push({ type: 'if', condition: cond, branches, code: `IF ${cond} THEN`, pos: sp }); continue;
     }
 
     if (u === 'FOR') {
+      const sp = toks[i].pos;
       i++;
       const { text: hdr, endIdx: hi } = collectCondition(toks, i, 'LOOP');
       i = toks[hi]?.u === 'LOOP' ? hi + 1 : hi;
       const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
       if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
-      steps.push({ type: 'for_loop', header: hdr, steps: ls, code: `FOR ${hdr} LOOP` }); continue;
+      steps.push({ type: 'for_loop', header: hdr, steps: ls, code: `FOR ${hdr} LOOP`, pos: sp }); continue;
     }
 
     if (u === 'WHILE') {
+      const sp = toks[i].pos;
       i++;
       const { text: wc, endIdx: wi } = collectCondition(toks, i, 'LOOP');
       i = toks[wi]?.u === 'LOOP' ? wi + 1 : wi;
       const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
       if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
-      steps.push({ type: 'while_loop', condition: wc, steps: ls, code: `WHILE ${wc} LOOP` }); continue;
+      steps.push({ type: 'while_loop', condition: wc, steps: ls, code: `WHILE ${wc} LOOP`, pos: sp }); continue;
     }
 
     if (u === 'LOOP') {
+      const sp = toks[i].pos;
       i++;
       const { steps: ls, endIdx: le } = parseBlock(toks, i, ['END']); i = le;
       if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'LOOP') i++; if (toks[i]?.t === 'SEMI') i++; }
-      steps.push({ type: 'loop', steps: ls, code: 'LOOP ... END LOOP' }); continue;
+      steps.push({ type: 'loop', steps: ls, code: 'LOOP ... END LOOP', pos: sp }); continue;
     }
 
     if (u === 'CASE') {
+      const sp = toks[i].pos;
       i++;
       let caseExpr = '';
       if (toks[i]?.u !== 'WHEN') { const r = collectCondition(toks, i, 'WHEN'); caseExpr = r.text; i = r.endIdx; }
@@ -207,7 +263,7 @@ function parseBlock(toks, i, stopWords) {
       }
       if (toks[i]?.u === 'END') { i++; if (toks[i]?.u === 'CASE') i++; if (toks[i]?.t === 'SEMI') i++; }
       const caseCond = caseExpr || 'CASE';
-      steps.push({ type: 'if', condition: caseCond, branches, code: `CASE ${caseCond}` }); continue;
+      steps.push({ type: 'if', condition: caseCond, branches, code: `CASE ${caseCond}`, pos: sp }); continue;
     }
 
     if (u === 'BEGIN') {
@@ -232,10 +288,11 @@ function parseBlock(toks, i, stopWords) {
     }
 
     // Simple statement
+    const sp = toks[i].pos;
     const { text, endIdx: si } = collectUntilSemi(toks, i);
     i = si + 1;
     const step = classifyStatement(u, text);
-    if (step) steps.push(step);
+    if (step) { step.pos = sp; steps.push(step); }
   }
   return { steps, endIdx: i };
 }
@@ -250,19 +307,35 @@ function classifyStatement(firstWord, text) {
         const t = m[1].toUpperCase();
         if (!SQL_KEYWORDS.has(t) && !SYSTEM_OBJECTS.has(t) && !tables.includes(t)) tables.push(t);
       }
-      return { type: 'select', tables, label: 'SELECT' + (tables.length ? ' FROM\\n' + tables.slice(0,2).join(', ') : ''), code: text };
+      let label = 'SELECT';
+      const into = extractSelectInto(text);
+      if (into) label += ` → ${into}`;
+      if (tables.length) label += '\\nFROM ' + tables.slice(0, 3).join(', ') + (tables.length > 3 ? ` 외 ${tables.length - 3}` : '');
+      const w = extractWhere(text);
+      if (w) label += `\\nWHERE ${w}`;
+      return { type: 'select', tables, label, code: text };
     }
     case 'INSERT': {
       const t = /INTO\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
-      return { type: 'insert', table: t, label: `INSERT INTO\\n${t}`, code: text };
+      const cols = extractInsertCols(text);
+      const colNote = cols.length ? `\\n${cols.length}개 컬럼` : (/\bSELECT\b/i.test(text) ? '\\n(SELECT 결과)' : '');
+      return { type: 'insert', table: t, label: `INSERT INTO\\n${t}${colNote}`, code: text };
     }
     case 'UPDATE': {
       const t = /UPDATE\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
-      return { type: 'update', table: t, label: `UPDATE\\n${t}`, code: text };
+      const setCols = extractUpdateSetCols(text);
+      let label = `UPDATE\\n${t}`;
+      if (setCols.length) label += `\\nSET ${setCols.slice(0, 3).join(', ')}${setCols.length > 3 ? ` 외 ${setCols.length - 3}` : ''}`;
+      const w = extractWhere(text);
+      if (w) label += `\\nWHERE ${w}`;
+      return { type: 'update', table: t, label, code: text };
     }
     case 'DELETE': {
       const t = /(?:DELETE\s+FROM|DELETE)\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
-      return { type: 'delete', table: t, label: `DELETE FROM\\n${t}`, code: text };
+      let label = `DELETE FROM\\n${t}`;
+      const w = extractWhere(text);
+      if (w) label += `\\nWHERE ${w}`;
+      return { type: 'delete', table: t, label, code: text };
     }
     case 'MERGE': {
       const t = /MERGE\s+INTO\s+([A-Z_][A-Z0-9_$#]*)/i.exec(text)?.[1]?.toUpperCase() || '';
@@ -336,6 +409,13 @@ function buildFlowAST(src) {
 let _n = 0;
 const nid = prefix => `${prefix}${++_n}`;
 
+// Module-level position map (node id → source char offset), reset per generateMermaid.
+// Mirrors the existing `_n` counter pattern to avoid threading through every fn.
+let _posMap = {};
+function regPos(id, step) {
+  if (step && step.pos != null) _posMap[id] = step.pos;
+}
+
 function arrowTo(label) {
   return label ? `-->|"${esc(label)}"|` : '-->';
 }
@@ -377,7 +457,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
   switch (step.type) {
     case 'select': {
       const id = nid('SEL');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["📖 ${esc(step.label)}"]`);
       lines.push(`  class ${id} readOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -386,7 +466,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'insert': case 'update': case 'delete': case 'merge': {
       const id = nid('DML');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["✏️ ${esc(step.label)}"]`);
       lines.push(`  class ${id} writeOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -395,7 +475,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'call_user': {
       const id = nid('CALL');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["🔧 ${esc(step.label)}"]`);
       lines.push(`  class ${id} callOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -404,7 +484,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'call_system': {
       const id = nid('SYS');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["📦 ${esc(step.label)}"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -413,7 +493,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'dynamic': {
       const id = nid('DYN');
-      nodeCodeMap[id] = step.code || 'EXECUTE IMMEDIATE';
+      nodeCodeMap[id] = step.code || 'EXECUTE IMMEDIATE'; regPos(id, step);
       lines.push(`  ${id}["⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -422,7 +502,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'commit': {
       const id = nid('CMT');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["💾 ${esc(step.label)}"]`);
       lines.push(`  class ${id} commitNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -431,7 +511,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'rollback': {
       const id = nid('RBK');
-      nodeCodeMap[id] = step.code || 'ROLLBACK';
+      nodeCodeMap[id] = step.code || 'ROLLBACK'; regPos(id, step);
       lines.push(`  ${id}["↩ ROLLBACK"]`);
       lines.push(`  class ${id} rollbackNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -440,7 +520,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'return': {
       const id = nid('RET');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}(["↪ ${esc(step.label)}"])`);
       lines.push(`  class ${id} endNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -449,7 +529,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'raise': {
       const id = nid('RAISE');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       lines.push(`  ${id}["⚠️ ${esc(step.label)}"]`);
       lines.push(`  class ${id} excNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
@@ -458,7 +538,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     }
     case 'cursor': {
       const id = nid('CUR');
-      nodeCodeMap[id] = step.code || step.label;
+      nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       const icon = step.op === 'FETCH' ? '📋' : step.op === 'OPEN' ? '🔓' : '🔒';
       lines.push(`  ${id}["${icon} ${esc(step.label)}"]`);
       lines.push(`  class ${id} cursorOp`);
@@ -478,7 +558,7 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   const decId = nid('IF');
   const AT = arrowTo(edgeLabel);
   const condLabel = step.condition ? esc(step.condition) : '조건';
-  nodeCodeMap[decId] = step.code || `IF ${step.condition || ''}`;
+  nodeCodeMap[decId] = step.code || `IF ${step.condition || ''}`; regPos(decId, step);
   lines.push(`  ${decId}{"IF\\n${condLabel}"}`);
   lines.push(`  class ${decId} decision`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${decId}`));
@@ -537,7 +617,7 @@ function buildLoopCodeDetail(step, indent) {
 function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCodeMap = {}) {
   const id = nid('LOOP');
   const AT = arrowTo(edgeLabel);
-  nodeCodeMap[id] = buildLoopCodeDetail(step, '');
+  nodeCodeMap[id] = buildLoopCodeDetail(step, ''); regPos(id, step);
 
   const bodySteps = (step.steps || []).filter(Boolean);
   const hasInteresting = bodySteps.some(s =>
@@ -582,6 +662,7 @@ function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCode
 
 function generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }) {
   _n = 0;
+  _posMap = {};
   const nodeCodeMap = {};
   const lines = [
     'flowchart TD',
@@ -647,7 +728,7 @@ function generateMermaid({ procName, procType, params, mainSteps, exceptionHandl
     lines.push(`  START -.->|"오류 발생 시"| ${excId}`);
   }
 
-  return { mermaid: lines.join('\n'), nodeCodeMap };
+  return { mermaid: lines.join('\n'), nodeCodeMap, nodePosMap: _posMap };
 }
 
 // ── Legacy metadata parsers (used by Summary tab) ─────────────────────────────
@@ -780,10 +861,22 @@ export function analyzePLSQL(source, procName, procType) {
 
   let mermaid = 'flowchart TD\n  ERR["분석 오류"]';
   let nodeCodeMap = {};
+  let nodePosMap = {};
   try {
     const { mainSteps, exceptionHandlers } = buildFlowAST(source);
-    ({ mermaid, nodeCodeMap } = generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }));
+    ({ mermaid, nodeCodeMap, nodePosMap } = generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }));
   } catch {}
 
-  return { procName, procType, params, reads, writes, calls, exceptions, cursors, variables, mermaid, nodeCodeMap };
+  // Convert node char-offsets → 1-based source line numbers (for click-to-scroll)
+  const lineStarts = buildLineStarts(source);
+  const nodeLineMap = {};
+  for (const [id, pos] of Object.entries(nodePosMap)) {
+    const ln = posToLine(lineStarts, pos);
+    if (ln != null) nodeLineMap[id] = ln;
+  }
+
+  return {
+    procName, procType, params, reads, writes, calls, exceptions, cursors, variables,
+    mermaid, nodeCodeMap, nodeLineMap, source,
+  };
 }

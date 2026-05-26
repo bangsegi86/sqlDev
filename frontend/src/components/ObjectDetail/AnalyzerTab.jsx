@@ -28,6 +28,13 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const [selectedNode, setSelectedNode] = useState(null); // { key, code }
   const [panelWidth, setPanelWidth] = useState(340);
 
+  // Full-script panel state
+  const [scriptOpen, setScriptOpen] = useState(false);
+  const [scrollTarget, setScrollTarget] = useState(null); // { line, nonce } — drives scroll/highlight
+  const scriptOpenRef = useRef(false);
+  scriptOpenRef.current = scriptOpen;
+  const svgRef = useRef(null);
+
   function onPanelResizeMouseDown(e) {
     e.preventDefault();
     const startX = e.clientX;
@@ -65,6 +72,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
   // Called by MermaidChart after SVG is injected into DOM
   const handleSvgReady = useCallback((svgEl) => {
+    svgRef.current = svgEl;
     const map = resultRef.current?.nodeCodeMap || {};
     const keys = Object.keys(map);
     if (!keys.length) return;
@@ -107,12 +115,79 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        setSelectedNode({ key, code: formatSQL(map[key]) || map[key] });
+        if (scriptOpenRef.current) {
+          // Script panel open → scroll the full script to this node's source line
+          const ln = resultRef.current?.nodeLineMap?.[key];
+          if (ln) setScrollTarget({ line: ln, nonce: Date.now() });
+        } else {
+          setSelectedNode({ key, code: formatSQL(map[key]) || map[key] });
+        }
       });
     });
   }, []);
 
   useEffect(() => { analyze(); }, [analyze]);
+
+  // ── Export: download the rendered flowchart as SVG or PNG ──────────────────
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function svgDimensions(svg) {
+    const vb = svg.viewBox?.baseVal;
+    if (vb && vb.width > 0 && vb.height > 0) return { w: vb.width, h: vb.height };
+    const r = svg.getBoundingClientRect();
+    return { w: r.width / zoom, h: r.height / zoom };
+  }
+
+  function cloneCleanSvg() {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const clone = svg.cloneNode(true);
+    clone.style.transform = '';        // strip zoom
+    clone.style.maxWidth = 'none';
+    const { w, h } = svgDimensions(svg);
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+    return { clone, w, h };
+  }
+
+  function exportSVG() {
+    const r = cloneCleanSvg();
+    if (!r) return;
+    const data = new XMLSerializer().serializeToString(r.clone);
+    const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n', data], { type: 'image/svg+xml;charset=utf-8' });
+    downloadBlob(blob, `${name}_flowchart.svg`);
+  }
+
+  function exportPNG() {
+    const r = cloneCleanSvg();
+    if (!r) return;
+    const { clone, w, h } = r;
+    const data = new XMLSerializer().serializeToString(clone);
+    const svgBlob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2; // hi-res export
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(w * scale);
+      canvas.height = Math.ceil(h * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#1e1e1e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(b => { if (b) downloadBlob(b, `${name}_flowchart.png`); }, 'image/png');
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }
 
   // Spacebar → temporary pan mode (ignore when focused on inputs)
   useEffect(() => {
@@ -245,6 +320,26 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
             <button className="btn-secondary" onClick={() => setZoom(z => Math.min(3, +(z + 0.15).toFixed(2)))} style={{ padding: '2px 8px', fontSize: 14 }}>+</button>
             <button className="btn-secondary" onClick={() => setZoom(1)} style={{ padding: '2px 6px', fontSize: 11 }}>리셋</button>
             <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 4 }}>Ctrl+휠</span>
+
+            <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 4px' }} />
+
+            {/* Full-script panel toggle */}
+            <button
+              onClick={() => { setScriptOpen(o => !o); setSelectedNode(null); }}
+              title="전체 스크립트 패널 표시 (켜짐: 노드 클릭 시 해당 위치로 스크롤)"
+              style={{
+                padding: '2px 9px', fontSize: 12, cursor: 'pointer', borderRadius: 4,
+                border: `1px solid ${scriptOpen ? 'var(--accent-bright)' : 'var(--border)'}`,
+                background: scriptOpen ? 'rgba(79,193,255,0.15)' : 'var(--bg-input)',
+                color: scriptOpen ? 'var(--accent-bright)' : 'var(--text-secondary)',
+              }}
+            >📜 스크립트 {scriptOpen ? 'ON' : 'OFF'}</button>
+
+            <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 4px' }} />
+
+            {/* Export */}
+            <button className="btn-secondary" onClick={exportPNG} title="PNG 이미지로 내보내기" style={{ padding: '2px 8px', fontSize: 11 }}>⬇ PNG</button>
+            <button className="btn-secondary" onClick={exportSVG} title="SVG 벡터로 내보내기" style={{ padding: '2px 8px', fontSize: 11 }}>⬇ SVG</button>
           </div>
         )}
 
@@ -275,8 +370,19 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
               />
             </div>
 
-            {/* Code side panel */}
-            {selectedNode && (
+            {/* Full-script panel (toggle ON) */}
+            {scriptOpen && (
+              <ScriptPanel
+                source={result.source || ''}
+                scrollTarget={scrollTarget}
+                panelWidth={panelWidth}
+                onResizeMouseDown={onPanelResizeMouseDown}
+                onClose={() => setScriptOpen(false)}
+              />
+            )}
+
+            {/* Code side panel (snippet popup — only when script panel is OFF) */}
+            {!scriptOpen && selectedNode && (
               <div style={{
                 position: 'relative',
                 width: panelWidth, flexShrink: 0,
@@ -352,6 +458,64 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
             </pre>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Full-script panel (line numbers + syntax highlight + click-to-scroll) ──────
+
+function ScriptPanel({ source, scrollTarget, panelWidth, onResizeMouseDown, onClose }) {
+  const lines = useMemo(() => (source ? source.replace(/\r\n/g, '\n').split('\n') : []), [source]);
+  const scrollRef = useRef(null);
+  const lineRefs = useRef({});
+  const [activeLine, setActiveLine] = useState(null);
+
+  useEffect(() => {
+    if (!scrollTarget?.line) return;
+    setActiveLine(scrollTarget.line);
+    const el = lineRefs.current[scrollTarget.line];
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [scrollTarget]);
+
+  return (
+    <div style={{
+      position: 'relative', width: panelWidth, flexShrink: 0,
+      borderLeft: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column',
+      background: 'var(--bg-panel)', overflow: 'hidden',
+    }}>
+      {/* Resize handle */}
+      <div
+        onMouseDown={onResizeMouseDown}
+        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, cursor: 'col-resize', zIndex: 10, background: 'transparent' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,193,255,0.45)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+      />
+      {/* Header */}
+      <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1 }}>📜 전체 스크립트</span>
+        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>노드 클릭 → 위치 이동</span>
+        <button onClick={onClose} style={{ fontSize: 13, padding: '2px 6px', background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', lineHeight: 1 }} title="닫기">✕</button>
+      </div>
+      {/* Code */}
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
+        <pre style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, background: 'var(--bg-primary)', minWidth: 'max-content' }}>
+          {lines.map((line, i) => {
+            const lineNo = i + 1;
+            const isActive = activeLine === lineNo;
+            return (
+              <div
+                key={i}
+                ref={el => { lineRefs.current[lineNo] = el; }}
+                style={{ display: 'flex', background: isActive ? 'rgba(79,193,255,0.18)' : 'transparent' }}
+              >
+                <span style={{ width: 44, minWidth: 44, color: isActive ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', borderRight: isActive ? '2px solid var(--accent-bright)' : '2px solid transparent' }}>{lineNo}</span>
+                <span style={{ whiteSpace: 'pre-wrap', paddingLeft: 8, flex: 1 }}>{renderHighlighted(line)}</span>
+              </div>
+            );
+          })}
+        </pre>
       </div>
     </div>
   );
