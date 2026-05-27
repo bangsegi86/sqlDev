@@ -1,11 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { AppProvider } from './store/AppContext.jsx';
+import { AppProvider, useApp } from './store/AppContext.jsx';
 import LeftPanel from './components/LeftPanel/LeftPanel.jsx';
 import RightPanel from './components/RightPanel/RightPanel.jsx';
 import StatusBar from './components/Common/StatusBar.jsx';
 import SettingsModal from './components/Settings/SettingsModal.jsx';
 
 function Layout() {
+  const { state } = useApp();
+  const { leftCollapsed } = state;
   const [leftWidth, setLeftWidth] = useState(240);
   const isDragging = useRef(false);
 
@@ -29,11 +31,13 @@ function Layout() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <LeftPanel width={leftWidth} />
-        <div
-          style={{ width: 4, background: 'var(--border)', cursor: 'col-resize', flexShrink: 0 }}
-          onMouseDown={onDividerMouseDown}
-        />
+        {!leftCollapsed && <LeftPanel width={leftWidth} />}
+        {!leftCollapsed && (
+          <div
+            style={{ width: 4, background: 'var(--border)', cursor: 'col-resize', flexShrink: 0 }}
+            onMouseDown={onDividerMouseDown}
+          />
+        )}
         <RightPanel />
       </div>
       <StatusBar />

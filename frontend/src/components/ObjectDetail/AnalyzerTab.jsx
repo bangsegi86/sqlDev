@@ -30,10 +30,15 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
 
   // Full-script panel state
   const [scriptOpen, setScriptOpen] = useState(false);
-  const [scrollTarget, setScrollTarget] = useState(null); // { line, nonce } — drives scroll/highlight
+  const [scrollTarget, setScrollTarget] = useState(null); // { line, nonce, editFocus? }
   const scriptOpenRef = useRef(false);
   scriptOpenRef.current = scriptOpen;
   const svgRef = useRef(null);
+
+  // Editable source (starts from result.source, tracks user edits in ScriptPanel)
+  const [editedSource, setEditedSource] = useState('');
+  // Right-click context menu on diagram nodes
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, nodeKey }
 
   function onPanelResizeMouseDown(e) {
     e.preventDefault();
@@ -65,7 +70,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   const analyze = useCallback(() => {
     setLoading(true); setError(''); setResult(null); setSelectedNode(null);
     api.analyzeProcedure(connectionId, schema, objectType, name)
-      .then(r => { resultRef.current = r; setResult(r); })
+      .then(r => { resultRef.current = r; setResult(r); setEditedSource(r.source || ''); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [connectionId, schema, objectType, name]);
@@ -116,17 +121,47 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         if (scriptOpenRef.current) {
-          // Script panel open → scroll the full script to this node's source line
           const ln = resultRef.current?.nodeLineMap?.[key];
           if (ln) setScrollTarget({ line: ln, nonce: Date.now() });
         } else {
           setSelectedNode({ key, code: formatSQL(map[key]) || map[key] });
         }
       });
+
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCtxMenu({ x: e.clientX, y: e.clientY, nodeKey: key });
+      });
     });
   }, []);
 
   useEffect(() => { analyze(); }, [analyze]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
+  function handleAddDesc(nodeKey) {
+    setCtxMenu(null);
+    const targetLine = resultRef.current?.nodeLineMap?.[nodeKey];
+    if (!targetLine) return;
+    // Open script panel
+    setScriptOpen(true);
+    setSelectedNode(null);
+    // Insert "-- @desc: " on the line ABOVE the node's statement
+    setEditedSource(prev => {
+      const lines = (prev || '').replace(/\r\n/g, '\n').split('\n');
+      lines.splice(targetLine - 1, 0, '-- @desc: ');
+      return lines.join('\n');
+    });
+    // Scroll to the newly inserted desc line and activate edit mode
+    setScrollTarget({ line: targetLine, nonce: Date.now(), editFocus: true });
+  }
 
   // ── Export: download the rendered flowchart as SVG or PNG ──────────────────
   function downloadBlob(blob, filename) {
@@ -373,11 +408,17 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
             {/* Full-script panel (toggle ON) */}
             {scriptOpen && (
               <ScriptPanel
-                source={result.source || ''}
+                source={editedSource}
                 scrollTarget={scrollTarget}
                 panelWidth={panelWidth}
                 onResizeMouseDown={onPanelResizeMouseDown}
                 onClose={() => setScriptOpen(false)}
+                onSourceChange={setEditedSource}
+                connectionId={connectionId}
+                schema={schema}
+                objectType={objectType}
+                name={name}
+                onRefresh={analyze}
               />
             )}
 
@@ -459,24 +500,97 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
           </div>
         )}
       </div>
+
+      {/* Diagram node right-click context menu */}
+      {ctxMenu && (
+        <div
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000,
+            background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            minWidth: 160, paddingBlock: 4,
+          }}
+        >
+          <div
+            onClick={() => handleAddDesc(ctxMenu.nodeKey)}
+            style={{
+              padding: '7px 14px', cursor: 'pointer', fontSize: 12,
+              color: 'var(--text-primary)', whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+          >💬 주석달기</div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Full-script panel (line numbers + syntax highlight + click-to-scroll) ──────
 
-function ScriptPanel({ source, scrollTarget, panelWidth, onResizeMouseDown, onClose }) {
+function ScriptPanel({
+  source, scrollTarget, panelWidth, onResizeMouseDown, onClose,
+  onSourceChange, connectionId, schema, objectType, name, onRefresh,
+}) {
   const lines = useMemo(() => (source ? source.replace(/\r\n/g, '\n').split('\n') : []), [source]);
   const scrollRef = useRef(null);
   const lineRefs = useRef({});
+  const textareaRef = useRef(null);
   const [activeLine, setActiveLine] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [compileResult, setCompileResult] = useState(null);
+  const [compileLoading, setCompileLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
 
+  // Scroll to active line in view mode
   useEffect(() => {
     if (!scrollTarget?.line) return;
     setActiveLine(scrollTarget.line);
+    if (scrollTarget.editFocus) {
+      setEditMode(true);
+      return;
+    }
     const el = lineRefs.current[scrollTarget.line];
     if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [scrollTarget]);
+
+  // When switching to edit mode via editFocus, position cursor after "-- @desc: "
+  useEffect(() => {
+    if (!editMode || !scrollTarget?.editFocus || !textareaRef.current) return;
+    const ln = scrollTarget.line; // the desc line (1-based)
+    const allLines = source.replace(/\r\n/g, '\n').split('\n');
+    // Char offset to the end of the desc line
+    let offset = allLines.slice(0, ln - 1).join('\n').length;
+    if (ln > 1) offset += 1; // account for the '\n' separator
+    offset += allLines[ln - 1]?.length ?? 0;
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(offset, offset);
+    // Scroll textarea to that line
+    const lineH = 18; // approx line height
+    textareaRef.current.scrollTop = Math.max(0, (ln - 5)) * lineH;
+  }, [editMode, scrollTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCompile() {
+    setCompileLoading(true); setCompileResult(null);
+    try {
+      const r = await api.compileSource(connectionId, schema, objectType, name);
+      setCompileResult(r);
+    } catch (e) {
+      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
+    } finally { setCompileLoading(false); }
+  }
+
+  async function handleSave() {
+    setSaveLoading(true); setCompileResult(null);
+    try {
+      await api.saveSource(connectionId, schema, objectType, name, source);
+      setCompileResult({ success: true, errors: [], message: '저장 완료 — 재분석 중...' });
+      onRefresh?.();
+    } catch (e) {
+      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
+    } finally { setSaveLoading(false); }
+  }
 
   return (
     <div style={{
@@ -493,29 +607,82 @@ function ScriptPanel({ source, scrollTarget, panelWidth, onResizeMouseDown, onCl
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
       />
       {/* Header */}
-      <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <div style={{ padding: '5px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         <span style={{ fontSize: 12, color: 'var(--accent-bright)', fontWeight: 600, flex: 1 }}>📜 전체 스크립트</span>
-        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>노드 클릭 → 위치 이동</span>
+        <button
+          onClick={() => setEditMode(m => !m)}
+          style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', borderRadius: 3, color: editMode ? 'var(--accent-bright)' : 'var(--text-secondary)', cursor: 'pointer' }}
+          title={editMode ? '읽기 모드' : '편집 모드'}
+        >{editMode ? '👁' : '✏️'}</button>
         <button onClick={onClose} style={{ fontSize: 13, padding: '2px 6px', background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', lineHeight: 1 }} title="닫기">✕</button>
       </div>
-      {/* Code */}
-      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
-        <pre style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, background: 'var(--bg-primary)', minWidth: 'max-content' }}>
-          {lines.map((line, i) => {
-            const lineNo = i + 1;
-            const isActive = activeLine === lineNo;
-            return (
-              <div
-                key={i}
-                ref={el => { lineRefs.current[lineNo] = el; }}
-                style={{ display: 'flex', background: isActive ? 'rgba(79,193,255,0.18)' : 'transparent' }}
-              >
-                <span style={{ width: 44, minWidth: 44, color: isActive ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', borderRight: isActive ? '2px solid var(--accent-bright)' : '2px solid transparent' }}>{lineNo}</span>
-                <span style={{ whiteSpace: 'pre-wrap', paddingLeft: 8, flex: 1 }}>{renderHighlighted(line)}</span>
-              </div>
-            );
-          })}
-        </pre>
+
+      {/* Body: read mode (syntax highlight) or edit mode (textarea) */}
+      {editMode ? (
+        <textarea
+          ref={textareaRef}
+          value={source}
+          onChange={e => onSourceChange?.(e.target.value)}
+          spellCheck={false}
+          style={{
+            flex: 1, minHeight: 0, resize: 'none',
+            fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.6,
+            background: 'var(--bg-primary)', color: 'var(--text-primary)',
+            border: 'none', padding: '8px 8px 8px 52px',
+          }}
+        />
+      ) : (
+        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
+          <pre style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.6, background: 'var(--bg-primary)', minWidth: 'max-content' }}>
+            {lines.map((line, i) => {
+              const lineNo = i + 1;
+              const isActive = activeLine === lineNo;
+              return (
+                <div
+                  key={i}
+                  ref={el => { lineRefs.current[lineNo] = el; }}
+                  style={{ display: 'flex', background: isActive ? 'rgba(79,193,255,0.18)' : 'transparent' }}
+                >
+                  <span style={{ width: 44, minWidth: 44, color: isActive ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', borderRight: isActive ? '2px solid var(--accent-bright)' : '2px solid transparent' }}>{lineNo}</span>
+                  <span style={{ whiteSpace: 'pre-wrap', paddingLeft: 8, flex: 1 }}>{renderHighlighted(line)}</span>
+                </div>
+              );
+            })}
+          </pre>
+        </div>
+      )}
+
+      {/* Compile/save result */}
+      {compileResult && (
+        <div style={{
+          padding: '4px 10px', borderTop: '1px solid var(--border)', flexShrink: 0,
+          background: compileResult.success ? 'rgba(30,90,30,0.3)' : 'rgba(90,20,20,0.3)',
+          fontSize: 11, maxHeight: 80, overflowY: 'auto',
+        }}>
+          <span style={{ fontWeight: 700, color: compileResult.success ? '#66bb6a' : 'var(--danger)' }}>
+            {compileResult.success ? `✅ ${compileResult.message || '컴파일 성공'}` : '❌ 오류'}
+          </span>
+          {(compileResult.errors || []).map((e, i) => (
+            <div key={i} style={{ color: e.attribute === 'ERROR' ? 'var(--danger)' : '#ffa726', marginTop: 2 }}>
+              {e.line ? `L${e.line}:${e.position}  ` : ''}{e.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Footer: Refresh / Compile / Save */}
+      <div style={{ padding: '5px 8px', borderTop: '1px solid var(--border)', display: 'flex', gap: 5, flexShrink: 0 }}>
+        <button className="btn-secondary" onClick={onRefresh} style={{ padding: '2px 8px', fontSize: 11 }}>↻ 새로고침</button>
+        <button className="btn-secondary" onClick={handleCompile} disabled={compileLoading} style={{ padding: '2px 8px', fontSize: 11 }}>
+          {compileLoading ? '...' : '🔨 컴파일'}
+        </button>
+        <button
+          className={editMode ? 'btn-primary' : 'btn-secondary'}
+          onClick={handleSave}
+          disabled={saveLoading || !editMode}
+          title={editMode ? '현재 스크립트를 DB에 저장 (CREATE OR REPLACE)' : '편집 모드에서만 저장 가능'}
+          style={{ padding: '2px 8px', fontSize: 11 }}
+        >{saveLoading ? '저장 중...' : '💾 저장'}</button>
       </div>
     </div>
   );

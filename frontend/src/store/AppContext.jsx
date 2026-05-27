@@ -12,6 +12,7 @@ const initialState = {
   tabs: [],
   activeTabId: null,
   statusMessage: '',
+  leftCollapsed: false,
 };
 
 function reducer(state, action) {
@@ -94,6 +95,8 @@ function reducer(state, action) {
       };
     case 'SET_STATUS':
       return { ...state, statusMessage: action.payload };
+    case 'TOGGLE_LEFT_PANEL':
+      return { ...state, leftCollapsed: !state.leftCollapsed };
     default:
       return state;
   }

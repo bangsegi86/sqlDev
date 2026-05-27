@@ -63,6 +63,39 @@ function esc(s) {
   return String(s || '').replace(/"/g, "'").replace(/[<>{}[\]]/g, ' ').replace(/\n/g, '\\n').trim().slice(0, 90);
 }
 
+// ── @desc comment extraction ───────────────────────────────────────────────────
+
+function extractDescComments(src) {
+  // Returns Map<lineNo(1-based), descText> for every "-- @desc: ..." line
+  const byLine = new Map();
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = /--\s*@desc:\s*(.*)/.exec(lines[i]);
+    if (m) byLine.set(i + 1, m[1].trim());
+  }
+  return byLine;
+}
+
+function attachDescs(steps, lineStarts, descByLine) {
+  // Recursively attach .desc to each step whose preceding line has a @desc comment
+  for (const step of steps) {
+    if (!step) continue;
+    if (step.pos != null) {
+      const ln = posToLine(lineStarts, step.pos);
+      const desc = descByLine.get(ln - 1);
+      if (desc) step.desc = desc;
+    }
+    // Recurse into control-flow children
+    if (step.branches) for (const b of step.branches) if (b.steps) attachDescs(b.steps, lineStarts, descByLine);
+    if (step.steps)    attachDescs(step.steps, lineStarts, descByLine);
+    if (step.bodySteps) attachDescs(step.bodySteps, lineStarts, descByLine);
+  }
+}
+
+function descSuffix(step) {
+  return step?.desc ? `\\n💬 ${esc(step.desc)}` : '';
+}
+
 // ── Statement-detail extractors (for richer node labels) ──────────────────────
 
 function extractWhere(text) {
@@ -458,7 +491,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'select': {
       const id = nid('SEL');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["📖 ${esc(step.label)}"]`);
+      lines.push(`  ${id}["📖 ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} readOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -467,7 +500,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'insert': case 'update': case 'delete': case 'merge': {
       const id = nid('DML');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["✏️ ${esc(step.label)}"]`);
+      lines.push(`  ${id}["✏️ ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} writeOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -476,7 +509,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'call_user': {
       const id = nid('CALL');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["🔧 ${esc(step.label)}"]`);
+      lines.push(`  ${id}["🔧 ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} callOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -485,7 +518,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'call_system': {
       const id = nid('SYS');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["📦 ${esc(step.label)}"]`);
+      lines.push(`  ${id}["📦 ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -494,7 +527,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'dynamic': {
       const id = nid('DYN');
       nodeCodeMap[id] = step.code || 'EXECUTE IMMEDIATE'; regPos(id, step);
-      lines.push(`  ${id}["⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행"]`);
+      lines.push(`  ${id}["⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행${descSuffix(step)}"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -503,7 +536,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'commit': {
       const id = nid('CMT');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["💾 ${esc(step.label)}"]`);
+      lines.push(`  ${id}["💾 ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} commitNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -512,7 +545,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'rollback': {
       const id = nid('RBK');
       nodeCodeMap[id] = step.code || 'ROLLBACK'; regPos(id, step);
-      lines.push(`  ${id}["↩ ROLLBACK"]`);
+      lines.push(`  ${id}["↩ ROLLBACK${descSuffix(step)}"]`);
       lines.push(`  class ${id} rollbackNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -521,7 +554,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'return': {
       const id = nid('RET');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}(["↪ ${esc(step.label)}"])`);
+      lines.push(`  ${id}(["↪ ${esc(step.label)}${descSuffix(step)}"])`);
       lines.push(`  class ${id} endNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -530,7 +563,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'raise': {
       const id = nid('RAISE');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["⚠️ ${esc(step.label)}"]`);
+      lines.push(`  ${id}["⚠️ ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} excNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -540,7 +573,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
       const id = nid('CUR');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       const icon = step.op === 'FETCH' ? '📋' : step.op === 'OPEN' ? '🔓' : '🔒';
-      lines.push(`  ${id}["${icon} ${esc(step.label)}"]`);
+      lines.push(`  ${id}["${icon} ${esc(step.label)}${descSuffix(step)}"]`);
       lines.push(`  class ${id} cursorOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -859,11 +892,17 @@ export function analyzePLSQL(source, procName, procType) {
     if (!reads.includes(c.table)) reads.push(c.table);
   }
 
+  const descByLine = extractDescComments(source);
+
   let mermaid = 'flowchart TD\n  ERR["분석 오류"]';
   let nodeCodeMap = {};
   let nodePosMap = {};
   try {
     const { mainSteps, exceptionHandlers } = buildFlowAST(source);
+    // Attach @desc comments to steps (must happen before generateMermaid)
+    const lineStarts = buildLineStarts(source);
+    attachDescs(mainSteps, lineStarts, descByLine);
+    for (const h of exceptionHandlers) attachDescs(h.steps, lineStarts, descByLine);
     ({ mermaid, nodeCodeMap, nodePosMap } = generateMermaid({ procName, procType, params, mainSteps, exceptionHandlers }));
   } catch {}
 

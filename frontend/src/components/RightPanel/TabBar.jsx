@@ -114,11 +114,12 @@ function TabListDropdown({ tabs, activeTabId, anchor, onSelect, onClose, onClose
 
 // ── Individual Tab ────────────────────────────────────────────────────────────
 
-function Tab({ tab, active, onActivate, onClose, onContextMenu }) {
+function Tab({ tab, active, onActivate, onClose, onContextMenu, onDoubleClick }) {
   return (
     <div
       data-tabid={tab.id}
       onClick={onActivate}
+      onDoubleClick={onDoubleClick}
       onAuxClick={e => e.button === 1 && onClose(e)}
       onContextMenu={onContextMenu}
       style={{
@@ -252,6 +253,7 @@ export default function TabBar() {
             onActivate={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
             onClose={e => { e.stopPropagation(); closeTab(tab.id); }}
             onContextMenu={e => handleContextMenu(e, tab.id)}
+            onDoubleClick={() => dispatch({ type: 'TOGGLE_LEFT_PANEL' })}
           />
         ))}
       </div>

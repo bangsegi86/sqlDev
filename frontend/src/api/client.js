@@ -40,6 +40,10 @@ export const api = {
   explainQuery: (id, sql, schema) => request(`/oracle/${id}/explain`, { method: 'POST', body: { sql, schema } }),
   analyzeExplain: (id, plan) => request(`/oracle/${id}/explain/analyze`, { method: 'POST', body: { plan } }),
   analyzeProcedure: (id, schema, type, name) => request(`/oracle/${id}/analyze/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
+  compileSource: (id, schema, type, name) =>
+    request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}/compile`, { method: 'POST' }),
+  saveSource: (id, schema, type, name, source) =>
+    request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`, { method: 'PUT', body: { source } }),
 
   generateReorderScript: (id, schema, table, columnOrder) =>
     request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/reorder-script`, {

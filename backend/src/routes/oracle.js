@@ -74,6 +74,18 @@ router.get('/:id/source/:schema/:type/:name/properties', wrap(async (req, res) =
   res.json(await oracle.getObjectProperties(req.params.id, req.params.schema, req.params.type, req.params.name));
 }));
 
+router.post('/:id/source/:schema/:type/:name/compile', wrap(async (req, res) => {
+  const { id, schema, type, name } = req.params;
+  res.json(await oracle.compileObject(id, schema, type, name));
+}));
+
+router.put('/:id/source/:schema/:type/:name', wrap(async (req, res) => {
+  const { id, schema, type, name } = req.params;
+  const { source } = req.body;
+  if (!source) return res.status(400).json({ error: 'source is required' });
+  res.json(await oracle.saveSource(id, schema, type, name, source));
+}));
+
 router.get('/:id/sequences/:schema/:name', wrap(async (req, res) => {
   res.json(await oracle.getSequenceInfo(req.params.id, req.params.schema, req.params.name));
 }));

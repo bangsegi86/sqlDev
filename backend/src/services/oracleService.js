@@ -259,6 +259,32 @@ export async function getObjectProperties(id, schema, type, name) {
   return r.rows[0] || null;
 }
 
+export async function compileObject(id, schema, type, name) {
+  // Oracle compile syntax differs for PACKAGE BODY
+  const compileType = type === 'PACKAGE BODY' ? 'PACKAGE' : type;
+  const compileSpec = type === 'PACKAGE BODY' ? 'COMPILE BODY' : 'COMPILE';
+  await execute(id, `ALTER ${compileType} "${schema}"."${name}" ${compileSpec}`, {});
+  const r = await execute(id,
+    `SELECT LINE, POSITION, TEXT, ATTRIBUTE FROM ALL_ERRORS
+     WHERE OWNER = :schema AND NAME = :name AND TYPE = :type
+     ORDER BY SEQUENCE`,
+    { schema, name, type },
+  );
+  const errors = (r.rows || []).map(row => ({
+    line: row.LINE, position: row.POSITION, text: row.TEXT, attribute: row.ATTRIBUTE,
+  }));
+  return { success: errors.filter(e => e.attribute === 'ERROR').length === 0, errors };
+}
+
+export async function saveSource(id, schema, type, name, source) {
+  const trimmed = source.trimStart();
+  // ALL_SOURCE rows don't include "CREATE OR REPLACE", so we prepend if missing
+  const hasCR = /^CREATE\s+OR\s+REPLACE\s+/i.test(trimmed);
+  const ddl = (hasCR ? trimmed : `CREATE OR REPLACE ${trimmed}`).replace(/;\s*$/, '');
+  await execute(id, ddl, {});
+  return { success: true };
+}
+
 export async function getSequenceInfo(id, schema, name) {
   const r = await execute(id,
     `SELECT * FROM ALL_SEQUENCES WHERE SEQUENCE_OWNER = :schema AND SEQUENCE_NAME = :name`,

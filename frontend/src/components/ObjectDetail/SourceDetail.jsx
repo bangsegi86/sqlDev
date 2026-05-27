@@ -17,12 +17,17 @@ export default function SourceDetail({ tab }) {
   const canAnalyze = ANALYZABLE.includes(objectType);
   const [activeTab, setActiveTab] = useState(tab.content.activeTab || (canAnalyze ? 'analyzer' : 'source'));
   const [source, setSource] = useState('');
+  const [editedSource, setEditedSource] = useState('');
+  const [editMode, setEditMode] = useState(false);
   const [isFormatted, setIsFormatted] = useState(false);
   const [copySource, sourceCopied] = useCopy();
   const [formattedSource, setFormattedSource] = useState('');
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [compileResult, setCompileResult] = useState(null);
+  const [compileLoading, setCompileLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
 
   // Ctrl+click navigation state
   const [acItems, setAcItems] = useState([]);
@@ -85,20 +90,44 @@ export default function SourceDetail({ tab }) {
     };
   }, [acItems, loadAcItems]);
 
+  function loadSource() {
+    setLoading(true); setError(''); setCompileResult(null);
+    api.getSource(connId, schema, objectType, name)
+      .then(r => { setSource(r.source); setEditedSource(r.source); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }
+
   useEffect(() => {
-    if (activeTab === 'source' && !source) {
-      setLoading(true); setError('');
-      api.getSource(connId, schema, objectType, name)
-        .then(r => setSource(r.source))
-        .catch(e => setError(e.message))
-        .finally(() => setLoading(false));
-    }
+    if (activeTab === 'source' && !source) loadSource();
     if (activeTab === 'properties' && !props) {
       api.getObjectProperties(connId, schema, objectType, name)
         .then(setProps)
         .catch(() => {});
     }
   }, [activeTab]);
+
+  async function handleCompile() {
+    setCompileLoading(true); setCompileResult(null);
+    try {
+      const r = await api.compileSource(connId, schema, objectType, name);
+      setCompileResult(r);
+    } catch (e) {
+      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
+    } finally { setCompileLoading(false); }
+  }
+
+  async function handleSave() {
+    setSaveLoading(true); setCompileResult(null);
+    try {
+      await api.saveSource(connId, schema, objectType, name, editedSource);
+      setCompileResult({ success: true, errors: [], message: '저장 완료' });
+      // Reload fresh source from DB
+      loadSource();
+    } catch (e) {
+      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
+    } finally { setSaveLoading(false); }
+  }
 
   function navigateToObject(schemaName, objectName, objectType) {
     const s = schemaName || schema;
@@ -205,73 +234,128 @@ export default function SourceDetail({ tab }) {
 
         {activeTab === 'source' && (
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            {/* Top toolbar */}
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
                 className="btn-secondary"
-                onClick={() => copySource(isFormatted ? formattedSource : source)}
+                onClick={() => copySource(editMode ? editedSource : (isFormatted ? formattedSource : source))}
                 style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
               >{sourceCopied ? '✓ 복사됨' : '📋 복사'}</button>
+              {!editMode && (
+                <button
+                  className={isFormatted ? 'btn-success' : 'btn-secondary'}
+                  style={{ padding: '2px 8px', fontSize: 11 }}
+                  onClick={() => {
+                    if (!isFormatted) { setFormattedSource(formatSQL(source)); setIsFormatted(true); }
+                    else { setIsFormatted(false); }
+                  }}
+                  title="SQL/PL-SQL 코드 줄 맞추기"
+                >{isFormatted ? '✓ 원본 보기' : '≡ 줄 맞추기'}</button>
+              )}
               <button
-                className={isFormatted ? 'btn-success' : 'btn-secondary'}
+                className={editMode ? 'btn-primary' : 'btn-secondary'}
                 style={{ padding: '2px 8px', fontSize: 11 }}
-                onClick={() => {
-                  if (!isFormatted) {
-                    setFormattedSource(formatSQL(source));
-                    setIsFormatted(true);
-                  } else {
-                    setIsFormatted(false);
-                  }
-                }}
-                title="SQL/PL-SQL 코드 줄 맞추기"
-              >
-                {isFormatted ? '✓ 원본 보기' : '≡ 줄 맞추기'}
-              </button>
-              {isFormatted && <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>포맷 적용됨</span>}
+                onClick={() => { setEditMode(m => !m); setIsFormatted(false); }}
+                title={editMode ? '읽기 모드로 전환' : '편집 모드로 전환'}
+              >{editMode ? '👁 보기' : '✏️ 편집'}</button>
+              {isFormatted && !editMode && <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>포맷 적용됨</span>}
             </div>
+
             {loading && <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading source...</div>}
             {error && <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>}
             {!loading && !error && (
-              <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                <pre
-                  ref={preRef}
-                  className="sql-source-pre"
-                  style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
-                >
-                  {(highlightedLines || []).map((lineToks, i) => (
-                    <div key={i} style={{ display: 'flex' }}>
-                      <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
-                      <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
-                        {lineToks.map((tok, j) => {
-                          if (!tok.color) return tok.value;
-                          if (tok.color === SQL_COLORS.table) {
-                            return (
-                              <span
-                                key={j}
-                                className="sql-table-token"
-                                style={{ color: tok.color }}
-                                title="Ctrl+Click: 테이블 상세 열기"
-                                onClick={e => handleTableClick(e, tok, j, lineToks)}
-                              >{tok.value}</span>
-                            );
-                          }
-                          // Callable token (procedure/function name in source)
-                          if (navigableCallableNames.has(tok.value.toUpperCase())) {
-                            return (
-                              <span
-                                key={j}
-                                className="sql-callable-token"
-                                style={{ color: tok.color }}
-                                title="Ctrl+Click: 상세 열기"
-                                onClick={e => handleCallableClick(e, tok.value)}
-                              >{tok.value}</span>
-                            );
-                          }
-                          return <span key={j} style={{ color: tok.color }}>{tok.value}</span>;
-                        })}
-                      </span>
-                    </div>
-                  ))}
-                </pre>
+              editMode ? (
+                <textarea
+                  value={editedSource}
+                  onChange={e => setEditedSource(e.target.value)}
+                  spellCheck={false}
+                  style={{
+                    flex: 1, minHeight: 0, resize: 'none',
+                    fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.5,
+                    background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                    border: 'none', borderBottom: '1px solid var(--border)',
+                    padding: '8px 12px',
+                  }}
+                />
+              ) : (
+                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                  <pre
+                    ref={preRef}
+                    className="sql-source-pre"
+                    style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
+                  >
+                    {(highlightedLines || []).map((lineToks, i) => (
+                      <div key={i} style={{ display: 'flex' }}>
+                        <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
+                        <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
+                          {lineToks.map((tok, j) => {
+                            if (!tok.color) return tok.value;
+                            if (tok.color === SQL_COLORS.table) {
+                              return (
+                                <span key={j} className="sql-table-token" style={{ color: tok.color }}
+                                  title="Ctrl+Click: 테이블 상세 열기"
+                                  onClick={e => handleTableClick(e, tok, j, lineToks)}
+                                >{tok.value}</span>
+                              );
+                            }
+                            if (navigableCallableNames.has(tok.value.toUpperCase())) {
+                              return (
+                                <span key={j} className="sql-callable-token" style={{ color: tok.color }}
+                                  title="Ctrl+Click: 상세 열기"
+                                  onClick={e => handleCallableClick(e, tok.value)}
+                                >{tok.value}</span>
+                              );
+                            }
+                            return <span key={j} style={{ color: tok.color }}>{tok.value}</span>;
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </pre>
+                </div>
+              )
+            )}
+
+            {/* Compile result */}
+            {compileResult && (
+              <div style={{
+                padding: '4px 10px', borderTop: '1px solid var(--border)',
+                background: compileResult.success ? 'rgba(30,90,30,0.25)' : 'rgba(90,20,20,0.25)',
+                fontSize: 11, flexShrink: 0, maxHeight: 100, overflowY: 'auto',
+              }}>
+                <span style={{ fontWeight: 700, color: compileResult.success ? '#66bb6a' : 'var(--danger)' }}>
+                  {compileResult.success ? `✅ ${compileResult.message || '컴파일 성공'}` : '❌ 컴파일 오류'}
+                </span>
+                {(compileResult.errors || []).map((e, i) => (
+                  <div key={i} style={{ color: e.attribute === 'ERROR' ? 'var(--danger)' : '#ffa726', marginTop: 2 }}>
+                    {e.line ? `L${e.line}:${e.position}  ` : ''}{e.text}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Bottom toolbar: Refresh / Compile / Save */}
+            {canAnalyze && (
+              <div style={{ padding: '5px 8px', borderTop: '1px solid var(--border)', background: 'var(--bg-panel)', display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button
+                  className="btn-secondary"
+                  onClick={loadSource}
+                  disabled={loading}
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                >↻ 새로고침</button>
+                <button
+                  className="btn-secondary"
+                  onClick={handleCompile}
+                  disabled={compileLoading || loading}
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                >{compileLoading ? '컴파일 중...' : '🔨 컴파일'}</button>
+                <button
+                  className={editMode ? 'btn-primary' : 'btn-secondary'}
+                  onClick={handleSave}
+                  disabled={saveLoading || loading || !editMode}
+                  style={{ padding: '2px 10px', fontSize: 11 }}
+                  title={editMode ? '' : '편집 모드에서만 저장 가능'}
+                >{saveLoading ? '저장 중...' : '💾 저장'}</button>
               </div>
             )}
           </div>
