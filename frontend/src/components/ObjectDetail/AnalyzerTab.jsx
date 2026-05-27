@@ -215,19 +215,19 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     }
   }, [effectivePan]);
 
-  // Ctrl+Wheel zoom — must use non-passive listener
+  // Ctrl+Wheel zoom — attach to document so e.preventDefault() fires before browser page-zoom,
+  // but only act when the cursor is inside the diagram wrapper.
   useEffect(() => {
-    const el = diagramWrapRef.current;
-    if (!el) return;
     const onWheel = (e) => {
       if (!e.ctrlKey) return;
+      if (!diagramWrapRef.current?.contains(e.target)) return;
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.1 : 0.1;
       setZoom(z => Math.min(3, Math.max(0.2, +(z + delta).toFixed(2))));
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [activeSection]);
+    document.addEventListener('wheel', onWheel, { passive: false });
+    return () => document.removeEventListener('wheel', onWheel);
+  }, []);
 
   // Pan drag handlers — cursor updated directly to avoid re-render overhead
   function setCursor(cur) {
