@@ -4,6 +4,7 @@ import { useApp, openTab } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
 import SavePreviewModal from './SavePreviewModal.jsx';
+import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
@@ -259,17 +260,10 @@ export default function SourceDetail({ tab }) {
             {error && <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>}
             {!loading && !error && (
               editMode ? (
-                <textarea
+                <SyntaxTextarea
                   value={editedSource}
-                  onChange={e => setEditedSource(e.target.value)}
-                  spellCheck={false}
-                  style={{
-                    flex: 1, minHeight: 0, resize: 'none',
-                    fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.5,
-                    background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                    border: 'none', borderBottom: '1px solid var(--border)',
-                    padding: '8px 12px',
-                  }}
+                  onChange={setEditedSource}
+                  style={{ borderBottom: '1px solid var(--border)' }}
                 />
               ) : (
                 <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>

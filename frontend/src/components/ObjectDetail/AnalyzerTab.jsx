@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
 import SavePreviewModal from './SavePreviewModal.jsx';
+import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { useCopy } from '../../utils/clipboard.js';
 import { renderHighlighted } from '../../utils/sqlHighlight.js';
 import { formatSQL } from '../../utils/formatSQL.js';
@@ -611,19 +612,12 @@ function ScriptPanel({
         <button onClick={onClose} style={{ fontSize: 13, padding: '2px 6px', background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', lineHeight: 1 }} title="닫기">✕</button>
       </div>
 
-      {/* Body: read mode (syntax highlight) or edit mode (textarea) */}
+      {/* Body: read mode (syntax highlight) or edit mode (highlighted textarea) */}
       {editMode ? (
-        <textarea
+        <SyntaxTextarea
           ref={textareaRef}
           value={source}
-          onChange={e => onSourceChange?.(e.target.value)}
-          spellCheck={false}
-          style={{
-            flex: 1, minHeight: 0, resize: 'none',
-            fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.6,
-            background: 'var(--bg-primary)', color: 'var(--text-primary)',
-            border: 'none', padding: '8px 8px 8px 52px',
-          }}
+          onChange={v => onSourceChange?.(v)}
         />
       ) : (
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto' }}>
