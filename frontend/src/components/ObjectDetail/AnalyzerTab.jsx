@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
+import SavePreviewModal from './SavePreviewModal.jsx';
 import { useCopy } from '../../utils/clipboard.js';
 import { renderHighlighted } from '../../utils/sqlHighlight.js';
 import { formatSQL } from '../../utils/formatSQL.js';
@@ -541,7 +542,7 @@ function ScriptPanel({
   const [editMode, setEditMode] = useState(false);
   const [compileResult, setCompileResult] = useState(null);
   const [compileLoading, setCompileLoading] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   // Scroll to active line in view mode
   useEffect(() => {
@@ -581,15 +582,8 @@ function ScriptPanel({
     } finally { setCompileLoading(false); }
   }
 
-  async function handleSave() {
-    setSaveLoading(true); setCompileResult(null);
-    try {
-      await api.saveSource(connectionId, schema, objectType, name, source);
-      setCompileResult({ success: true, errors: [], message: '저장 완료 — 재분석 중...' });
-      onRefresh?.();
-    } catch (e) {
-      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
-    } finally { setSaveLoading(false); }
+  function handleSave() {
+    setShowSaveModal(true);
   }
 
   return (
@@ -679,11 +673,24 @@ function ScriptPanel({
         <button
           className={editMode ? 'btn-primary' : 'btn-secondary'}
           onClick={handleSave}
-          disabled={saveLoading || !editMode}
-          title={editMode ? '현재 스크립트를 DB에 저장 (CREATE OR REPLACE)' : '편집 모드에서만 저장 가능'}
+          disabled={!editMode}
+          title={editMode ? 'SQL 미리보기 후 저장' : '편집 모드에서만 저장 가능'}
           style={{ padding: '2px 8px', fontSize: 11 }}
-        >{saveLoading ? '저장 중...' : '💾 저장'}</button>
+        >💾 저장</button>
       </div>
+
+      {/* Save preview modal */}
+      {showSaveModal && (
+        <SavePreviewModal
+          connectionId={connectionId}
+          schema={schema}
+          objectType={objectType}
+          name={name}
+          source={source}
+          onClose={() => setShowSaveModal(false)}
+          onSuccess={() => { setEditMode(false); setShowSaveModal(false); onRefresh?.(); }}
+        />
+      )}
     </div>
   );
 }

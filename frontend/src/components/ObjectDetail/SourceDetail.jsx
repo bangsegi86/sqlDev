@@ -3,6 +3,7 @@ import { api } from '../../api/client.js';
 import { useApp, openTab } from '../../store/AppContext.jsx';
 import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
+import SavePreviewModal from './SavePreviewModal.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
@@ -27,7 +28,7 @@ export default function SourceDetail({ tab }) {
   const [error, setError] = useState('');
   const [compileResult, setCompileResult] = useState(null);
   const [compileLoading, setCompileLoading] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   // Ctrl+click navigation state
   const [acItems, setAcItems] = useState([]);
@@ -117,16 +118,9 @@ export default function SourceDetail({ tab }) {
     } finally { setCompileLoading(false); }
   }
 
-  async function handleSave() {
-    setSaveLoading(true); setCompileResult(null);
-    try {
-      await api.saveSource(connId, schema, objectType, name, editedSource);
-      setCompileResult({ success: true, errors: [], message: '저장 완료' });
-      // Reload fresh source from DB
-      loadSource();
-    } catch (e) {
-      setCompileResult({ success: false, errors: [{ text: e.message, attribute: 'ERROR' }] });
-    } finally { setSaveLoading(false); }
+  function handleSave() {
+    // Show SQL preview modal; actual API call happens inside the modal on Execute
+    setShowSaveModal(true);
   }
 
   function navigateToObject(schemaName, objectName, objectType) {
@@ -352,10 +346,10 @@ export default function SourceDetail({ tab }) {
                 <button
                   className={editMode ? 'btn-primary' : 'btn-secondary'}
                   onClick={handleSave}
-                  disabled={saveLoading || loading || !editMode}
+                  disabled={loading || !editMode}
                   style={{ padding: '2px 10px', fontSize: 11 }}
-                  title={editMode ? '' : '편집 모드에서만 저장 가능'}
-                >{saveLoading ? '저장 중...' : '💾 저장'}</button>
+                  title={editMode ? 'SQL 미리보기 후 저장' : '편집 모드에서만 저장 가능'}
+                >💾 저장</button>
               </div>
             )}
           </div>
@@ -378,6 +372,19 @@ export default function SourceDetail({ tab }) {
           </div>
         )}
       </div>
+
+      {/* Save preview modal */}
+      {showSaveModal && (
+        <SavePreviewModal
+          connectionId={connId}
+          schema={schema}
+          objectType={objectType}
+          name={name}
+          source={editedSource}
+          onClose={() => setShowSaveModal(false)}
+          onSuccess={() => { setEditMode(false); loadSource(); }}
+        />
+      )}
     </div>
   );
 }
