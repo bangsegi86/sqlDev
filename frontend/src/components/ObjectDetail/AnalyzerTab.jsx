@@ -158,7 +158,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     // Insert "-- @desc: " on the line ABOVE the node's statement
     setEditedSource(prev => {
       const lines = (prev || '').replace(/\r\n/g, '\n').split('\n');
-      lines.splice(targetLine - 1, 0, '-- @desc: ');
+      lines.splice(targetLine - 1, 0, '--desc: ');
       return lines.join('\n');
     });
     // Scroll to the newly inserted desc line and activate edit mode

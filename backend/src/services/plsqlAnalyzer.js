@@ -66,24 +66,28 @@ function esc(s) {
 // ── @desc comment extraction ───────────────────────────────────────────────────
 
 function extractDescComments(src) {
-  // Returns Map<lineNo(1-based), descText> for every "-- @desc: ..." line
+  // Returns Map<lineNo(1-based), descText> for every "-- @desc: ..." or "-- desc: ..." line
   const byLine = new Map();
   const lines = src.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const m = /--\s*@desc:\s*(.*)/.exec(lines[i]);
+    const m = /--\s*@?desc:\s*(.*)/i.exec(lines[i]);
     if (m) byLine.set(i + 1, m[1].trim());
   }
   return byLine;
 }
 
 function attachDescs(steps, lineStarts, descByLine) {
-  // Recursively attach .desc to each step whose preceding line has a @desc comment
+  // Recursively attach .desc to each step.
+  // Looks up to 3 lines above the statement for a desc comment
+  // (to allow for blank lines between comment and statement).
   for (const step of steps) {
     if (!step) continue;
     if (step.pos != null) {
       const ln = posToLine(lineStarts, step.pos);
-      const desc = descByLine.get(ln - 1);
-      if (desc) step.desc = desc;
+      for (let offset = 1; offset <= 3; offset++) {
+        const desc = descByLine.get(ln - offset);
+        if (desc != null) { step.desc = desc; break; }
+      }
     }
     // Recurse into control-flow children
     if (step.branches) for (const b of step.branches) if (b.steps) attachDescs(b.steps, lineStarts, descByLine);
