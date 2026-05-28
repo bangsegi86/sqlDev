@@ -47,7 +47,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     const startX = e.clientX;
     const startW = panelWidth;
     function onMove(ev) {
-      setPanelWidth(Math.max(220, Math.min(700, startW + (startX - ev.clientX))));
+      setPanelWidth(Math.max(220, Math.min(Math.floor(window.innerWidth * 0.8), startW + (startX - ev.clientX))));
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove);
