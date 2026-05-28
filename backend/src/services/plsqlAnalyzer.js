@@ -71,8 +71,13 @@ function extractDescComments(src) {
   const lines = src.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const m = /--\s*@?desc:\s*(.*)/i.exec(lines[i]);
-    if (m) byLine.set(i + 1, m[1].trim());
+    if (m) {
+      const text = m[1].trim();
+      byLine.set(i + 1, text);
+      console.log(`[desc] L${i + 1}: "${text}"`);
+    }
   }
+  if (byLine.size === 0) console.log('[desc] no --desc: comments found in source');
   return byLine;
 }
 
@@ -86,7 +91,11 @@ function attachDescs(steps, lineStarts, descByLine) {
       const ln = posToLine(lineStarts, step.pos);
       for (let offset = 1; offset <= 3; offset++) {
         const desc = descByLine.get(ln - offset);
-        if (desc != null) { step.desc = desc; break; }
+        if (desc != null) {
+          console.log(`[attach] step type=${step.type} at L${ln} ← desc from L${ln - offset}: "${desc}"`);
+          step.desc = desc;
+          break;
+        }
       }
     }
     // Recurse into control-flow children
@@ -596,7 +605,7 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   const AT = arrowTo(edgeLabel);
   const condLabel = step.condition ? esc(step.condition) : '조건';
   nodeCodeMap[decId] = step.code || `IF ${step.condition || ''}`; regPos(decId, step);
-  lines.push(`  ${decId}{"IF\\n${condLabel}"}`);
+  lines.push(`  ${decId}{"IF\\n${condLabel}${descSuffix(step)}"}`);
   lines.push(`  class ${decId} decision`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${decId}`));
   lines.push('');
@@ -665,7 +674,7 @@ function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCode
   if (!hasInteresting) {
     // No meaningful body — show single summary box
     const summary = summarizeSteps(bodySteps).slice(0, 4).map(s => esc(s)).join('\\n');
-    lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
+    lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}${descSuffix(step)}"]`);
     lines.push(`  class ${id} loopBox`);
     prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
     lines.push('');
@@ -673,7 +682,7 @@ function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCode
   }
 
   // Expanded loop: header node → body nodes → loop-back → exit merge node
-  lines.push(`  ${id}["${esc(headerLabel)}"]`);
+  lines.push(`  ${id}["${esc(headerLabel)}${descSuffix(step)}"]`);
   lines.push(`  class ${id} loopBox`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
   lines.push('');
