@@ -52,6 +52,30 @@ export const api = {
   executeScript: (id, statements, schema) =>
     request(`/oracle/${id}/execute-script`, { method: 'POST', body: { statements, schema } }),
 
+  // Table specification export → triggers a file download (xlsx | pdf)
+  exportTableSpec: async (id, schema, tables, format) => {
+    const res = await fetch(`${BASE}/oracle/${id}/table-spec/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema, tables, format }),
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = /filename="?([^"]+)"?/.exec(cd);
+    const filename = m ? m[1] : `table_spec.${format === 'pdf' ? 'pdf' : 'xlsx'}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    return { filename };
+  },
+
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
   getJdbcStatus: () => request('/settings/jdbc-status'),

@@ -231,6 +231,54 @@ export async function getTableReferences(id, schema, tableName) {
   return r.rows;
 }
 
+// Gather full specification metadata for a single table:
+//   table comment, columns (with PK flag + comments), indexes, foreign keys.
+export async function getTableSpec(id, schema, tableName) {
+  const [tabComment, columns, idxRows, fkRows] = await Promise.all([
+    execute(id,
+      `SELECT COMMENTS FROM ALL_TAB_COMMENTS WHERE OWNER = :schema AND TABLE_NAME = :table`,
+      { schema, table: tableName }
+    ).then(r => r.rows[0]?.COMMENTS || '').catch(() => ''),
+    getColumns(id, schema, tableName),
+    execute(id,
+      `SELECT i.INDEX_NAME, i.UNIQUENESS, ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND
+       FROM ALL_INDEXES i
+       JOIN ALL_IND_COLUMNS ic
+         ON i.INDEX_NAME = ic.INDEX_NAME AND i.OWNER = ic.INDEX_OWNER
+       WHERE i.TABLE_OWNER = :schema AND i.TABLE_NAME = :table
+       ORDER BY i.INDEX_NAME, ic.COLUMN_POSITION`,
+      { schema, table: tableName }
+    ).then(r => r.rows).catch(() => []),
+    getTableReferences(id, schema, tableName).catch(() => []),
+  ]);
+
+  // Group index columns by index name
+  const idxMap = new Map();
+  for (const r of idxRows) {
+    if (!idxMap.has(r.INDEX_NAME)) {
+      idxMap.set(r.INDEX_NAME, { name: r.INDEX_NAME, unique: r.UNIQUENESS === 'UNIQUE', columns: [] });
+    }
+    idxMap.get(r.INDEX_NAME).columns.push(
+      r.DESCEND === 'DESC' ? `${r.COLUMN_NAME} DESC` : r.COLUMN_NAME
+    );
+  }
+
+  return {
+    schema,
+    name: tableName,
+    comment: tabComment,
+    columns,
+    indexes: [...idxMap.values()],
+    foreignKeys: fkRows.map(r => ({
+      constraint: r.CONSTRAINT_NAME,
+      column: r.COLUMN_NAME,
+      refOwner: r.R_OWNER,
+      refTable: r.R_TABLE,
+      refColumn: r.R_COLUMN,
+    })),
+  };
+}
+
 export async function getViewDDL(id, schema, viewName) {
   const r = await execute(id,
     `SELECT DBMS_METADATA.GET_DDL('VIEW', :name, :schema) AS DDL FROM DUAL`,

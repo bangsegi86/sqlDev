@@ -3,6 +3,7 @@ import * as oracle from '../services/oracleService.js';
 import * as store from '../services/connectionStore.js';
 import { analyzePLSQL } from '../services/plsqlAnalyzer.js';
 import { analyzePlan } from '../services/planAnalyzer.js';
+import { buildWorkbook, buildPdf } from '../services/specExportService.js';
 
 const router = Router();
 
@@ -139,5 +140,34 @@ router.get('/:id/analyze/:schema/:type/:name', wrap(async (req, res) => {
   res.json(result);
 }));
 
+
+// ── 테이블 명세서 내보내기 (Excel / PDF)
+router.post('/:id/table-spec/export', wrap(async (req, res) => {
+  const { id } = req.params;
+  const { schema, tables, format = 'xlsx' } = req.body;
+  if (!schema || !Array.isArray(tables) || tables.length === 0)
+    return res.status(400).json({ error: 'schema and a non-empty tables array are required' });
+
+  // Gather metadata for every requested table (sequentially to avoid overloading the pool)
+  const specs = [];
+  for (const name of tables) {
+    specs.push(await oracle.getTableSpec(id, schema, name));
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const base = `table_spec_${schema}_${stamp}`;
+
+  if (format === 'pdf') {
+    const buf = await buildPdf(specs);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${base}.pdf"`);
+    return res.end(buf);
+  }
+
+  const buf = await buildWorkbook(specs);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${base}.xlsx"`);
+  res.end(Buffer.from(buf));
+}));
 
 export default router;

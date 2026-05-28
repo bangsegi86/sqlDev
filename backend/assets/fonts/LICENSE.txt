@@ -1,0 +1,9 @@
+NanumGothic (NanumGothic-Regular.ttf, NanumGothic-Bold.ttf)
+
+Copyright (c) 2010, NAVER Corporation (https://www.navercorp.com/)
+
+This font is licensed under the SIL Open Font License, Version 1.1.
+https://scripts.sil.org/OFL
+
+Bundled with this application solely to render Korean text in generated
+PDF table-specification documents (offline use, no network required).

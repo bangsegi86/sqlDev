@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useApp, openTab } from '../../../store/AppContext.jsx';
 import { api } from '../../../api/client.js';
+import TableSpecModal from '../../ObjectDetail/TableSpecModal.jsx';
 
 const OBJECT_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'SEQUENCE', 'SYNONYM'];
 const TYPE_ICONS = { TABLE: '▦', VIEW: '◧', PROCEDURE: '⊕', FUNCTION: 'ƒ', PACKAGE: '⊞', TRIGGER: '⚡', SEQUENCE: '∞', SYNONYM: '≡' };
@@ -13,12 +14,28 @@ const STYLE_ITEM    = { display: 'flex', alignItems: 'center', padding: '3px 8px
 const STYLE_ICON_SM = { color: 'var(--text-secondary)', fontSize: 11, marginRight: 4 };
 
 // Memoized leaf item — only re-renders when its own props change
-const ObjectItem = memo(function ObjectItem({ name, type, isFiltering, objectFilter, onObjectClick }) {
+const ObjectItem = memo(function ObjectItem({
+  name, type, schema, isFiltering, objectFilter, onObjectClick,
+  selectable, selected, onToggle, onContext,
+}) {
   const label = isFiltering
     ? highlightMatch(name, objectFilter)
     : <span style={{ fontSize: 12 }}>{name}</span>;
   return (
-    <div style={STYLE_ITEM} onClick={() => onObjectClick(type, name)}>
+    <div
+      style={{ ...STYLE_ITEM, paddingLeft: selectable ? 22 : 40, background: selected ? 'rgba(79,193,255,0.16)' : undefined }}
+      onClick={() => onObjectClick(type, name)}
+      onContextMenu={selectable ? (e) => onContext(e, schema, name) : undefined}
+    >
+      {selectable && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onClick={e => e.stopPropagation()}
+          onChange={() => onToggle(schema, name)}
+          style={{ marginRight: 6, cursor: 'pointer', accentColor: 'var(--accent-bright)' }}
+        />
+      )}
       <span style={STYLE_ICON_SM}>{TYPE_ICONS[type]}</span>
       {label}
     </div>
@@ -37,6 +54,11 @@ export default function ObjectExplorer() {
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
   const [filterCollapsed, setFilterCollapsed] = useState(new Set());
+
+  // Multi-select of tables (scoped to a single schema) for spec export
+  const [sel, setSel] = useState({ schema: null, names: new Set() });
+  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, name }
+  const [specModal, setSpecModal] = useState(null); // { schema, tables }
 
   // Keep latest state accessible inside stable callbacks without making them re-create
   const stateRef = useRef(state);
@@ -70,6 +92,41 @@ export default function ObjectExplorer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     });
   }, [objectFilter, expandedNodes, activeConnectionId]);
+
+  // Close context menu on any outside click
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
+  // Reset table selection when the active connection changes
+  useEffect(() => { setSel({ schema: null, names: new Set() }); }, [activeConnectionId]);
+
+  const toggleSelect = useCallback((schema, name) => {
+    setSel(prev => {
+      const names = prev.schema === schema ? new Set(prev.names) : new Set();
+      if (names.has(name)) names.delete(name); else names.add(name);
+      return { schema, names };
+    });
+  }, []);
+
+  const openObjContext = useCallback((e, schema, name) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, schema, name });
+  }, []);
+
+  function openSpecFor(schema, name) {
+    // Use the multi-selection when it belongs to this schema; otherwise just this table.
+    const selectedHere = sel.schema === schema ? sel.names : new Set();
+    const tables = selectedHere.size
+      ? (selectedHere.has(name) ? [...selectedHere] : [...selectedHere, name])
+      : [name];
+    setSpecModal({ schema, tables });
+    setCtxMenu(null);
+  }
 
   if (!activeConnectionId || !isConnected) return null;
 
@@ -131,6 +188,27 @@ export default function ObjectExplorer() {
       <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
       </div>
+
+      {sel.names.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
+          background: 'rgba(79,193,255,0.12)', borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700 }}>
+            {sel.names.size}개 선택
+          </span>
+          <button
+            className="btn-secondary"
+            style={{ padding: '2px 8px', fontSize: 11, marginLeft: 'auto' }}
+            onClick={() => setSpecModal({ schema: sel.schema, tables: [...sel.names] })}
+          >📑 명세서 만들기</button>
+          <button
+            onClick={() => setSel({ schema: null, names: new Set() })}
+            title="선택 해제"
+            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13 }}
+          >✕</button>
+        </div>
+      )}
 
       <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput placeholder="스키마 필터..." value={schemaFilter} onChange={setSchemaFilter} />
@@ -202,9 +280,14 @@ export default function ObjectExplorer() {
                             key={name}
                             name={name}
                             type={type}
+                            schema={schema}
                             isFiltering={isObjFiltering}
                             objectFilter={isObjFiltering ? objectFilter.trim() : ''}
                             onObjectClick={objectClickHandler}
+                            selectable={type === 'TABLE'}
+                            selected={sel.schema === schema && sel.names.has(name)}
+                            onToggle={toggleSelect}
+                            onContext={openObjContext}
                           />
                         ))}
                       </div>
@@ -216,6 +299,42 @@ export default function ObjectExplorer() {
           );
         })}
       </div>
+
+      {/* Right-click context menu on a table */}
+      {ctxMenu && (
+        <div
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000,
+            background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            minWidth: 200, paddingBlock: 4,
+          }}
+        >
+          <div
+            onClick={() => openSpecFor(ctxMenu.schema, ctxMenu.name)}
+            style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            📑 테이블 명세서 만들기
+            {sel.schema === ctxMenu.schema && sel.names.size > 0 && (
+              <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>
+                ({sel.names.has(ctxMenu.name) ? sel.names.size : sel.names.size + 1}개)
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {specModal && (
+        <TableSpecModal
+          connectionId={activeConnectionId}
+          schema={specModal.schema}
+          initialTables={specModal.tables}
+          onClose={() => setSpecModal(null)}
+        />
+      )}
     </div>
   );
 }
