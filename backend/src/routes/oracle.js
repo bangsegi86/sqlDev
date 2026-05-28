@@ -97,6 +97,13 @@ router.post('/:id/query', wrap(async (req, res) => {
   res.json(await oracle.executeSQL(req.params.id, sql, schema, { page, limit }));
 }));
 
+// ── 전체 건수 조회 (필요할 때만 COUNT(*) 실행)
+router.post('/:id/count', wrap(async (req, res) => {
+  const { sql, schema } = req.body;
+  if (!sql) return res.status(400).json({ error: 'sql is required' });
+  res.json(await oracle.countSQL(req.params.id, sql, schema));
+}));
+
 // ── 컬럼 순서 변경 스크립트 생성
 router.post('/:id/tables/:schema/:name/reorder-script', wrap(async (req, res) => {
   const { columnOrder } = req.body;

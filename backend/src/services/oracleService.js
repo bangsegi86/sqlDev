@@ -354,20 +354,28 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
 
   if (entry.type === 'jdbc') {
     const start = Date.now();
-    const result = await jdbcExecute(id, cleanSql, {});
-    const elapsed = Date.now() - start;
-    if (result.metaData) {
-      const allRows = result.rows || [];
-      const pageRows = allRows.slice(offset, offset + lim);
+    if (isSelect) {
+      // DBeaver-style: only pull this page (+1 probe row to detect "more"),
+      // never fetch the whole result set. No COUNT(*) — keeps it instant.
+      const probe = lim + 1;
+      const pagedSql = `SELECT * FROM (${cleanSql}) OFFSET ${offset} ROWS FETCH NEXT ${probe} ROWS ONLY`;
+      const result = await jdbcExecute(id, pagedSql, {});
+      const elapsed = Date.now() - start;
+      const rows = result.rows || [];
+      const hasMore = rows.length > lim;
+      if (hasMore) rows.length = lim; // drop the probe row
       return {
-        columns: result.metaData.map(m => m.name),
-        rows: pageRows,
-        rowCount: pageRows.length,
-        total: allRows.length,
+        columns: (result.metaData || []).map(m => m.name),
+        rows,
+        rowCount: rows.length,
+        total: null,        // not counted — use countSQL() on demand
+        hasMore,
         page: pg, limit: lim,
         executionTime: elapsed,
       };
     }
+    const result = await jdbcExecute(id, cleanSql, {});
+    const elapsed = Date.now() - start;
     return {
       columns: [], rows: [],
       rowCount: result.rowsAffected || 0,
@@ -382,18 +390,28 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
     if (schema) await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`);
 
     if (isSelect) {
-      const pagedSql = `SELECT * FROM (${cleanSql}) OFFSET :offset ROWS FETCH NEXT :lim ROWS ONLY`;
-      const countSql = `SELECT COUNT(*) AS CNT FROM (${cleanSql})`;
-      const [dataRes, countRes] = await Promise.all([
-        conn.execute(pagedSql, { offset, lim }, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
-        conn.execute(countSql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
-      ]);
+      // DBeaver-style fetch: pull only this page plus a single probe row to
+      // detect whether more rows exist. We deliberately skip COUNT(*) — counting
+      // a 100k+ row result forces Oracle to run the whole query and is the main
+      // reason large queries felt slow. Exact total is available on demand via
+      // countSQL() (the "전체 건수" button).
+      const probe = lim + 1;
+      const pagedSql = `SELECT * FROM (${cleanSql}) OFFSET :offset ROWS FETCH NEXT :probe ROWS ONLY`;
+      const dataRes = await conn.execute(
+        pagedSql,
+        { offset, probe },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchArraySize: probe }
+      );
       const elapsed = Date.now() - start;
+      const rows = dataRes.rows || [];
+      const hasMore = rows.length > lim;
+      if (hasMore) rows.length = lim; // drop the probe row
       return {
         columns: dataRes.metaData.map(m => m.name),
-        rows: dataRes.rows || [],
-        rowCount: dataRes.rows?.length || 0,
-        total: countRes.rows[0].CNT,
+        rows,
+        rowCount: rows.length,
+        total: null,        // not counted — use countSQL() on demand
+        hasMore,
         page: pg, limit: lim,
         executionTime: elapsed,
       };
@@ -408,6 +426,36 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
       executionTime: elapsed,
       message: `${result.rowsAffected || 0} row(s) affected`,
     };
+  } finally {
+    await conn.close();
+  }
+}
+
+// On-demand exact row count for a SELECT (the "전체 건수" button).
+// Kept separate from executeSQL so normal query execution stays instant.
+export async function countSQL(id, sql, schema) {
+  const entry = pools.get(id);
+  if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+
+  const cleanSql = sql.trim().replace(/;+\s*$/, '');
+  if (!/^\s*(SELECT|WITH)\b/i.test(cleanSql))
+    throw Object.assign(new Error('COUNT is only available for SELECT statements'), { status: 400 });
+
+  const countSql = `SELECT COUNT(*) AS CNT FROM (${cleanSql})`;
+  const start = Date.now();
+
+  if (entry.type === 'jdbc') {
+    const result = await jdbcExecute(id, countSql, {});
+    const row = (result.rows && result.rows[0]) || {};
+    const total = Number(row.CNT ?? Object.values(row)[0] ?? 0);
+    return { total, executionTime: Date.now() - start };
+  }
+
+  const conn = await entry.pool.getConnection();
+  try {
+    if (schema) await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schema}"`);
+    const res = await conn.execute(countSql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    return { total: Number(res.rows[0].CNT), executionTime: Date.now() - start };
   } finally {
     await conn.close();
   }

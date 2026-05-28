@@ -105,6 +105,7 @@ export default function SqlEditor({ tab }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [counting, setCounting] = useState(false);
   const [splitPos, setSplitPos] = useState(50);
 
   // Accumulated result state
@@ -443,12 +444,17 @@ export default function SqlEditor({ tab }) {
         setExecTime(r.executionTime);
         dispatch({ type: 'SET_STATUS', payload: `${r.message} | ${r.executionTime}ms` });
       } else {
+        const loaded = r.rows?.length ?? 0;
         setResultCols(r.columns || []);
         setAllRows(r.rows || []);
         setTotal(r.total ?? null);
-        setHasMore((r.total ?? 0) > (r.rows?.length ?? 0));
+        // Backend now returns hasMore directly (DBeaver-style probe row);
+        // fall back to the old total-based check for safety.
+        setHasMore(r.hasMore ?? ((r.total ?? 0) > loaded));
         setNextPage(2);
-        const statusMsg = `총 ${(r.total ?? r.rows?.length ?? 0).toLocaleString()}행 | ${r.executionTime}ms`;
+        const statusMsg = r.total != null
+          ? `총 ${r.total.toLocaleString()}행 | ${r.executionTime}ms`
+          : `${loaded.toLocaleString()}행 로드${r.hasMore ? ' (더 있음)' : ''} | ${r.executionTime}ms`;
         dispatch({ type: 'SET_STATUS', payload: statusMsg });
         setExecTime(r.executionTime);
       }
@@ -493,16 +499,30 @@ export default function SqlEditor({ tab }) {
     try {
       const r = await api.executeQuery(connId, lastStmt, schema, nextPage, LIMIT);
       const newRows = r.rows || [];
-      setAllRows(prev => {
-        const combined = [...prev, ...newRows];
-        setHasMore(combined.length < (r.total ?? 0));
-        return combined;
-      });
+      setAllRows(prev => [...prev, ...newRows]);
+      // Prefer the backend's probe-based flag; fall back to total comparison.
+      setHasMore(r.hasMore ?? ((allRows.length + newRows.length) < (total ?? 0)));
       setNextPage(p => p + 1);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoadingMore(false);
+    }
+  }
+
+  // Fetch the exact total row count on demand (DBeaver's "calculate row count").
+  // Kept off the hot path so executing a query stays instant.
+  async function fetchCount() {
+    if (!lastStmt || !connId || counting) return;
+    setCounting(true);
+    try {
+      const r = await api.countQuery(connId, lastStmt, schema);
+      setTotal(r.total);
+      setHasMore(allRows.length < r.total);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCounting(false);
     }
   }
 
@@ -690,12 +710,25 @@ export default function SqlEditor({ tab }) {
                       <>
                         <span>
                           <b style={{ color: 'var(--text-primary)' }}>{allRows.length.toLocaleString()}</b>
-                          {total != null && total !== allRows.length
-                            ? <span style={{ color: 'var(--text-dim)' }}> / {total.toLocaleString()}행 로드됨</span>
-                            : <span style={{ color: 'var(--text-dim)' }}>행</span>
+                          {total != null
+                            ? <span style={{ color: 'var(--text-dim)' }}> / 전체 {total.toLocaleString()}행</span>
+                            : <span style={{ color: 'var(--text-dim)' }}>행 로드{hasMore ? '+' : ''}</span>
                           }
                         </span>
                         {execTime != null && <span>{execTime}ms</span>}
+                        {total == null && (
+                          <button
+                            onClick={fetchCount}
+                            disabled={counting}
+                            title="전체 행 수를 계산합니다 (COUNT). 큰 결과는 시간이 걸릴 수 있습니다."
+                            style={{
+                              background: 'none', border: '1px solid var(--border)', borderRadius: 3,
+                              color: 'var(--accent)', cursor: 'pointer', fontSize: 10, padding: '1px 7px',
+                            }}
+                          >
+                            {counting ? '계산 중…' : 'Σ 전체 건수'}
+                          </button>
+                        )}
                         {hasMore && (
                           <span style={{ color: 'var(--accent)', fontSize: 10 }}>
                             ↓ 스크롤하거나 버튼으로 추가 로드
