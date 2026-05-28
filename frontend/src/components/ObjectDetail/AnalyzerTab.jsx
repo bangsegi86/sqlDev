@@ -193,9 +193,36 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     return { clone, w, h };
   }
 
+  // Resolve CSS variable references inside an SVG clone so it renders correctly
+  // when serialized and loaded as a standalone image (no page CSS context).
+  function resolveSvgCssVars(svgClone) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const reVar = /var\((--[\w-]+)(?:,\s*([^)]*))?\)/g;
+    function resolveStr(s) {
+      return s.replace(reVar, (_, name, fallback) => {
+        const val = rootStyle.getPropertyValue(name).trim();
+        return val || fallback || 'inherit';
+      });
+    }
+    svgClone.querySelectorAll('style').forEach(el => {
+      el.textContent = resolveStr(el.textContent);
+    });
+    function walkEl(el) {
+      const st = el.getAttribute?.('style');
+      if (st && st.includes('var(')) el.setAttribute('style', resolveStr(st));
+      for (const attr of ['fill', 'stroke', 'color']) {
+        const v = el.getAttribute?.(attr);
+        if (v && v.includes('var(')) el.setAttribute(attr, resolveStr(v));
+      }
+      for (const child of (el.children || [])) walkEl(child);
+    }
+    walkEl(svgClone);
+  }
+
   function exportSVG() {
     const r = cloneCleanSvg();
     if (!r) return;
+    resolveSvgCssVars(r.clone);
     const data = new XMLSerializer().serializeToString(r.clone);
     const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n', data], { type: 'image/svg+xml;charset=utf-8' });
     downloadBlob(blob, `${name}_flowchart.svg`);
@@ -205,12 +232,13 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     const r = cloneCleanSvg();
     if (!r) return;
     const { clone, w, h } = r;
+    resolveSvgCssVars(clone);
     const data = new XMLSerializer().serializeToString(clone);
-    const svgBlob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
+    // Use data URL — more reliable than blob URL for canvas drawImage across browsers
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(data);
     const img = new Image();
     img.onload = () => {
-      const scale = 2; // hi-res export
+      const scale = 2;
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(w * scale);
       canvas.height = Math.ceil(h * scale);
@@ -219,10 +247,9 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
       canvas.toBlob(b => { if (b) downloadBlob(b, `${name}_flowchart.png`); }, 'image/png');
     };
-    img.onerror = () => URL.revokeObjectURL(url);
+    img.onerror = () => console.warn('[exportPNG] SVG 로드 실패');
     img.src = url;
   }
 
