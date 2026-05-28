@@ -77,7 +77,6 @@ function extractDescComments(src) {
       console.log(`[desc] L${i + 1}: "${text}"`);
     }
   }
-  if (byLine.size === 0) console.log('[desc] no -- @desc: comments found in source');
   return byLine;
 }
 
