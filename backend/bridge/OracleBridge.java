@@ -27,7 +27,7 @@ public class OracleBridge {
 
                 } else if (line.startsWith("QUERY\t")) {
                     if (conn == null) { out.println("ERROR\tNot connected"); continue; }
-                    String sql = line.substring(6);
+                    String sql = unescape(line.substring(6));
                     out.println(executeSQL(conn, sql));
 
                 } else if ("CLOSE".equals(line)) {
@@ -43,6 +43,27 @@ public class OracleBridge {
                 out.println("ERROR\t" + msg.replace('\n', ' ').replace('\r', ' '));
             }
         }
+    }
+
+    static String unescape(String s) {
+        StringBuilder sb = new StringBuilder();
+        boolean esc = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (esc) {
+                if (c == 'n') sb.append('\n');
+                else if (c == 'r') sb.append('\r');
+                else if (c == '\\') sb.append('\\');
+                else { sb.append('\\'); sb.append(c); }
+                esc = false;
+            } else if (c == '\\') {
+                esc = true;
+            } else {
+                sb.append(c);
+            }
+        }
+        if (esc) sb.append('\\');
+        return sb.toString();
     }
 
     static String getVersion(Connection conn) throws Exception {

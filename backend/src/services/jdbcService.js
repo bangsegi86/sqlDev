@@ -271,7 +271,8 @@ export async function jdbcExecute(id, sql, params = {}) {
   const state = processes.get(id);
   if (!state) throw Object.assign(new Error('Not connected (JDBC)'), { status: 400 });
   const expanded = expandParams(sql, params);
-  const resp = await send(state, 'QUERY\t' + expanded.replace(/\n/g, ' '));
+  const encoded = expanded.replace(/\\/g, '\\\\').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+  const resp = await send(state, 'QUERY\t' + encoded);
   // DATA\t{json}
   const data = JSON.parse(resp.slice(5));
   // Normalize to match oracledb result format
