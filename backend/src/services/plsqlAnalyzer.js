@@ -105,8 +105,9 @@ function attachDescs(steps, lineStarts, descByLine) {
   }
 }
 
-function descSuffix(step) {
-  return step?.desc ? `\\n💬 ${esc(step.desc)}` : '';
+function descPrefix(step) {
+  if (!step?.desc) return '';
+  return `💬 ${esc(step.desc)}\\n─────────────\\n`;
 }
 
 // ── Statement-detail extractors (for richer node labels) ──────────────────────
@@ -504,7 +505,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'select': {
       const id = nid('SEL');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["📖 ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}📖 ${esc(step.label)}"]`);
       lines.push(`  class ${id} readOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -513,7 +514,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'insert': case 'update': case 'delete': case 'merge': {
       const id = nid('DML');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["✏️ ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}✏️ ${esc(step.label)}"]`);
       lines.push(`  class ${id} writeOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -522,7 +523,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'call_user': {
       const id = nid('CALL');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["🔧 ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}🔧 ${esc(step.label)}"]`);
       lines.push(`  class ${id} callOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -531,7 +532,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'call_system': {
       const id = nid('SYS');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["📦 ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}📦 ${esc(step.label)}"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -540,7 +541,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'dynamic': {
       const id = nid('DYN');
       nodeCodeMap[id] = step.code || 'EXECUTE IMMEDIATE'; regPos(id, step);
-      lines.push(`  ${id}["⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}⚡ EXECUTE IMMEDIATE\\n동적 SQL 실행"]`);
       lines.push(`  class ${id} sysCall`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -549,7 +550,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'commit': {
       const id = nid('CMT');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["💾 ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}💾 ${esc(step.label)}"]`);
       lines.push(`  class ${id} commitNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -558,7 +559,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'rollback': {
       const id = nid('RBK');
       nodeCodeMap[id] = step.code || 'ROLLBACK'; regPos(id, step);
-      lines.push(`  ${id}["↩ ROLLBACK${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}↩ ROLLBACK"]`);
       lines.push(`  class ${id} rollbackNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -567,7 +568,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'return': {
       const id = nid('RET');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}(["↪ ${esc(step.label)}${descSuffix(step)}"])`);
+      lines.push(`  ${id}(["${descPrefix(step)}↪ ${esc(step.label)}"])`);
       lines.push(`  class ${id} endNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -576,7 +577,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
     case 'raise': {
       const id = nid('RAISE');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
-      lines.push(`  ${id}["⚠️ ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}⚠️ ${esc(step.label)}"]`);
       lines.push(`  class ${id} excNode`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -586,7 +587,7 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
       const id = nid('CUR');
       nodeCodeMap[id] = step.code || step.label; regPos(id, step);
       const icon = step.op === 'FETCH' ? '📋' : step.op === 'OPEN' ? '🔓' : '🔒';
-      lines.push(`  ${id}["${icon} ${esc(step.label)}${descSuffix(step)}"]`);
+      lines.push(`  ${id}["${descPrefix(step)}${icon} ${esc(step.label)}"]`);
       lines.push(`  class ${id} cursorOp`);
       prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
       lines.push('');
@@ -605,7 +606,7 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   const AT = arrowTo(edgeLabel);
   const condLabel = step.condition ? esc(step.condition) : '조건';
   nodeCodeMap[decId] = step.code || `IF ${step.condition || ''}`; regPos(decId, step);
-  lines.push(`  ${decId}{"IF\\n${condLabel}${descSuffix(step)}"}`);
+  lines.push(`  ${decId}{"${descPrefix(step)}IF\\n${condLabel}"}`);
   lines.push(`  class ${decId} decision`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${decId}`));
   lines.push('');
@@ -674,7 +675,7 @@ function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCode
   if (!hasInteresting) {
     // No meaningful body — show single summary box
     const summary = summarizeSteps(bodySteps).slice(0, 4).map(s => esc(s)).join('\\n');
-    lines.push(`  ${id}["${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}${descSuffix(step)}"]`);
+    lines.push(`  ${id}["${descPrefix(step)}${esc(headerLabel)}${summary ? '\\n──────\\n' + summary : ''}"]`);
     lines.push(`  class ${id} loopBox`);
     prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
     lines.push('');
@@ -682,7 +683,7 @@ function generateLoopNode(lines, step, prevIds, edgeLabel, headerLabel, nodeCode
   }
 
   // Expanded loop: header node → body nodes → loop-back → exit merge node
-  lines.push(`  ${id}["${esc(headerLabel)}${descSuffix(step)}"]`);
+  lines.push(`  ${id}["${descPrefix(step)}${esc(headerLabel)}"]`);
   lines.push(`  class ${id} loopBox`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${id}`));
   lines.push('');
