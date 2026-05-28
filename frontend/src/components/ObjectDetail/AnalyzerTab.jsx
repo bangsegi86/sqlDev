@@ -152,16 +152,16 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
     setCtxMenu(null);
     const targetLine = resultRef.current?.nodeLineMap?.[nodeKey];
     if (!targetLine) return;
-    // Open script panel
     setScriptOpen(true);
     setSelectedNode(null);
-    // Insert "-- @desc: " on the line ABOVE the node's statement
     setEditedSource(prev => {
       const lines = (prev || '').replace(/\r\n/g, '\n').split('\n');
-      lines.splice(targetLine - 1, 0, '--desc: ');
+      // Match indentation of the statement line so the comment aligns with it
+      const stmtLine = lines[targetLine - 1] || '';
+      const indent = stmtLine.match(/^(\s*)/)?.[1] ?? '';
+      lines.splice(targetLine - 1, 0, `${indent}-- @desc: `);
       return lines.join('\n');
     });
-    // Scroll to the newly inserted desc line and activate edit mode
     setScrollTarget({ line: targetLine, nonce: Date.now(), editFocus: true });
   }
 

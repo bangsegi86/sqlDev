@@ -66,7 +66,7 @@ function esc(s) {
 // ── @desc comment extraction ───────────────────────────────────────────────────
 
 function extractDescComments(src) {
-  // Returns Map<lineNo(1-based), descText> for every "-- @desc: ..." or "-- desc: ..." line
+  // Returns Map<lineNo(1-based), descText> for "-- @desc: ..." lines (@ optional for compatibility)
   const byLine = new Map();
   const lines = src.split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -77,7 +77,7 @@ function extractDescComments(src) {
       console.log(`[desc] L${i + 1}: "${text}"`);
     }
   }
-  if (byLine.size === 0) console.log('[desc] no --desc: comments found in source');
+  if (byLine.size === 0) console.log('[desc] no -- @desc: comments found in source');
   return byLine;
 }
 
