@@ -3,14 +3,14 @@ import ConnectionManager from './ConnectionManager/ConnectionManager.jsx';
 import ObjectExplorer from './ObjectExplorer/ObjectExplorer.jsx';
 import { useApp } from '../../store/AppContext.jsx';
 
-export default function LeftPanel({ width }) {
+export default function LeftPanel({ width, hidden }) {
   const { state } = useApp();
   const isConnected = state.activeConnectionId && state.connectionStatuses[state.activeConnectionId] === 'connected';
 
   return (
     <div style={{
       width, flexShrink: 0, background: 'var(--bg-sidebar)',
-      borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
+      borderRight: '1px solid var(--border)', display: hidden ? 'none' : 'flex', flexDirection: 'column',
       overflow: 'hidden',
     }}>
       <ConnectionManager />

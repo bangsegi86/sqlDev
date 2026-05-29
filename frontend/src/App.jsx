@@ -31,13 +31,11 @@ function Layout() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Header />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {!leftCollapsed && <LeftPanel width={leftWidth} />}
-        {!leftCollapsed && (
-          <div
-            style={{ width: 4, background: 'var(--border)', cursor: 'col-resize', flexShrink: 0 }}
-            onMouseDown={onDividerMouseDown}
-          />
-        )}
+        <LeftPanel width={leftWidth} hidden={leftCollapsed} />
+        <div
+          style={{ width: 4, background: 'var(--border)', cursor: 'col-resize', flexShrink: 0, display: leftCollapsed ? 'none' : undefined }}
+          onMouseDown={onDividerMouseDown}
+        />
         <RightPanel />
       </div>
       <StatusBar />
