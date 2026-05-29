@@ -289,14 +289,18 @@ export default function ObjectExplorer() {
                                   setSel({ schema, names: new Set([n]) });
                                   lastSelRef.current = { schema, name: n };
                                 }
-                              } else {
-                                // Plain click or Ctrl+click → toggle selection
+                              } else if (e.ctrlKey || e.metaKey) {
+                                // Ctrl+click → toggle (accumulate)
                                 setSel(prev => {
                                   const names = prev.schema === schema ? new Set(prev.names) : new Set();
                                   if (names.has(n)) names.delete(n); else names.add(n);
                                   if (names.size === 0) return { schema: null, names: new Set() };
                                   return { schema, names };
                                 });
+                                lastSelRef.current = { schema, name: n };
+                              } else {
+                                // Plain click → select only this one
+                                setSel({ schema, names: new Set([n]) });
                                 lastSelRef.current = { schema, name: n };
                               }
                             };
