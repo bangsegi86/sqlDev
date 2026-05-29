@@ -12,10 +12,13 @@ router.get('/', wrap(async (req, res) => {
 }));
 
 router.post('/', wrap(async (req, res) => {
-  const { name, host, port, serviceName, username, password } = req.body;
-  if (!name || !host || !serviceName || !username || !password)
-    return res.status(400).json({ error: 'name, host, serviceName, username, password are required' });
-  res.status(201).json(await store.create({ name, host, port, serviceName, username, password }));
+  const { name, host, port, dbType, serviceName, database, username, password } = req.body;
+  const isPg = dbType === 'postgres';
+  const target = isPg ? database : serviceName;
+  const targetLabel = isPg ? 'database' : 'serviceName';
+  if (!name || !host || !target || !username || !password)
+    return res.status(400).json({ error: `name, host, ${targetLabel}, username, password are required` });
+  res.status(201).json(await store.create({ name, host, port, dbType, serviceName, database, username, password }));
 }));
 
 router.put('/:id', wrap(async (req, res) => {
