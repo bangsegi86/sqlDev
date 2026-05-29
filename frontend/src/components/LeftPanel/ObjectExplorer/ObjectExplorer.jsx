@@ -13,29 +13,24 @@ const STYLE_TYPE    = { display: 'flex', alignItems: 'center', padding: '3px 8px
 const STYLE_ITEM    = { display: 'flex', alignItems: 'center', padding: '3px 8px 3px 40px', cursor: 'pointer', userSelect: 'none' };
 const STYLE_ICON_SM = { color: 'var(--text-secondary)', fontSize: 11, marginRight: 4 };
 
-// Memoized leaf item — only re-renders when its own props change
+// Memoized leaf item — only re-renders when its own props change.
+// Multi-select (TABLE): Ctrl+click toggles, Shift+click range-selects.
+// No checkboxes — selection shown by background highlight only.
 const ObjectItem = memo(function ObjectItem({
-  name, type, schema, isFiltering, objectFilter, onObjectClick,
-  selectable, selected, onToggle, onContext,
+  name, type, isFiltering, objectFilter, onItemClick, isSelected, onContext,
 }) {
   const label = isFiltering
     ? highlightMatch(name, objectFilter)
     : <span style={{ fontSize: 12 }}>{name}</span>;
   return (
     <div
-      style={{ ...STYLE_ITEM, paddingLeft: selectable ? 22 : 40, background: selected ? 'rgba(79,193,255,0.16)' : undefined }}
-      onClick={() => onObjectClick(type, name)}
-      onContextMenu={selectable ? (e) => onContext(e, schema, name) : undefined}
+      style={{ ...STYLE_ITEM, background: isSelected ? 'rgba(79,193,255,0.18)' : undefined }}
+      onClick={(e) => onItemClick(e, name)}
+      onContextMenu={onContext
+        ? (e) => { e.preventDefault(); e.stopPropagation(); onContext(e, name); }
+        : undefined
+      }
     >
-      {selectable && (
-        <input
-          type="checkbox"
-          checked={selected}
-          onClick={e => e.stopPropagation()}
-          onChange={() => onToggle(schema, name)}
-          style={{ marginRight: 6, cursor: 'pointer', accentColor: 'var(--accent-bright)' }}
-        />
-      )}
       <span style={STYLE_ICON_SM}>{TYPE_ICONS[type]}</span>
       {label}
     </div>
@@ -60,7 +55,10 @@ export default function ObjectExplorer() {
   const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, name }
   const [specModal, setSpecModal] = useState(null); // { schema, tables }
 
-  // Keep latest state accessible inside stable callbacks without making them re-create
+  // Tracks the last item clicked (for Shift+click range-select)
+  const lastSelRef = useRef(null); // { schema, name }
+
+  // Keep latest state accessible inside stable callbacks without re-creating them
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -104,22 +102,11 @@ export default function ObjectExplorer() {
   // Reset table selection when the active connection changes
   useEffect(() => { setSel({ schema: null, names: new Set() }); }, [activeConnectionId]);
 
-  const toggleSelect = useCallback((schema, name) => {
-    setSel(prev => {
-      const names = prev.schema === schema ? new Set(prev.names) : new Set();
-      if (names.has(name)) names.delete(name); else names.add(name);
-      return { schema, names };
-    });
-  }, []);
-
   const openObjContext = useCallback((e, schema, name) => {
-    e.preventDefault();
-    e.stopPropagation();
     setCtxMenu({ x: e.clientX, y: e.clientY, schema, name });
   }, []);
 
   function openSpecFor(schema, name) {
-    // Use the multi-selection when it belongs to this schema; otherwise just this table.
     const selectedHere = sel.schema === schema ? sel.names : new Set();
     const tables = selectedHere.size
       ? (selectedHere.has(name) ? [...selectedHere] : [...selectedHere, name])
@@ -140,7 +127,6 @@ export default function ObjectExplorer() {
       .finally(() => setLoading(l => ({ ...l, [key]: false })));
   }
 
-  // Stable callbacks — use stateRef so they don't need to re-create when state changes
   const handleSchemaClick = useCallback((schema) => {
     const nodeId = `${activeConnectionId}-${schema}`;
     dispatch({ type: 'TOGGLE_NODE', payload: nodeId });
@@ -161,7 +147,6 @@ export default function ObjectExplorer() {
     }
   }, [dispatch, activeConnectionId]);
 
-  // Per-schema stable callback factory — memoized by schema+type key
   const makeObjectClickHandler = useCallback((schema) => (type, name) => {
     const s = stateRef.current;
     const tabType = ['TABLE', 'VIEW'].includes(type) ? 'table'
@@ -275,21 +260,70 @@ export default function ObjectExplorer() {
                     {showObjects && (
                       <div>
                         {isLoading && <div style={{ paddingLeft: 40, color: 'var(--text-dim)', fontSize: 11 }}>Loading...</div>}
-                        {displayList?.map(name => (
-                          <ObjectItem
-                            key={name}
-                            name={name}
-                            type={type}
-                            schema={schema}
-                            isFiltering={isObjFiltering}
-                            objectFilter={isObjFiltering ? objectFilter.trim() : ''}
-                            onObjectClick={objectClickHandler}
-                            selectable={type === 'TABLE'}
-                            selected={sel.schema === schema && sel.names.has(name)}
-                            onToggle={toggleSelect}
-                            onContext={openObjContext}
-                          />
-                        ))}
+                        {displayList?.map(name => {
+                          if (type === 'TABLE') {
+                            // TABLE: Ctrl+click toggles, Shift+click range-selects, plain click opens tab
+                            const isSelected = sel.schema === schema && sel.names.has(name);
+                            const handleClick = (e, n) => {
+                              if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                setSel(prev => {
+                                  const names = prev.schema === schema ? new Set(prev.names) : new Set();
+                                  if (names.has(n)) names.delete(n); else names.add(n);
+                                  if (names.size === 0) return { schema: null, names: new Set() };
+                                  return { schema, names };
+                                });
+                                lastSelRef.current = { schema, name: n };
+                              } else if (e.shiftKey) {
+                                e.preventDefault();
+                                const list = displayList;
+                                const last = lastSelRef.current;
+                                const fromIdx = (last?.schema === schema && list) ? list.indexOf(last.name) : -1;
+                                const toIdx = list ? list.indexOf(n) : -1;
+                                if (fromIdx !== -1 && toIdx !== -1) {
+                                  const [s, t] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+                                  const range = list.slice(s, t + 1);
+                                  setSel(prev => {
+                                    const names = prev.schema === schema ? new Set(prev.names) : new Set();
+                                    range.forEach(rn => names.add(rn));
+                                    return { schema, names };
+                                  });
+                                } else {
+                                  // No anchor yet — just select this one
+                                  setSel({ schema, names: new Set([n]) });
+                                  lastSelRef.current = { schema, name: n };
+                                }
+                              } else {
+                                lastSelRef.current = { schema, name: n };
+                                objectClickHandler('TABLE', n);
+                              }
+                            };
+                            return (
+                              <ObjectItem
+                                key={name}
+                                name={name}
+                                type={type}
+                                isFiltering={isObjFiltering}
+                                objectFilter={isObjFiltering ? objectFilter.trim() : ''}
+                                onItemClick={handleClick}
+                                isSelected={isSelected}
+                                onContext={(e, n) => openObjContext(e, schema, n)}
+                              />
+                            );
+                          }
+                          // Non-TABLE: plain click opens tab, no selection
+                          return (
+                            <ObjectItem
+                              key={name}
+                              name={name}
+                              type={type}
+                              isFiltering={isObjFiltering}
+                              objectFilter={isObjFiltering ? objectFilter.trim() : ''}
+                              onItemClick={(e, n) => objectClickHandler(type, n)}
+                              isSelected={false}
+                            />
+                          );
+                        })}
                       </div>
                     )}
                   </div>
