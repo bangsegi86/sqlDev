@@ -413,7 +413,7 @@ export default function ObjectExplorer() {
 
           {/* 스크립트 보기 (모든 타입) */}
           <CtxMenuItem onClick={openScriptForCtx}>
-            📄 스크립트 보기 / Execute
+            📄 스크립트 보기
           </CtxMenuItem>
 
           {/* 테이블 명세서는 TABLE에만 */}

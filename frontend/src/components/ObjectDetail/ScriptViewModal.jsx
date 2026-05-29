@@ -44,17 +44,13 @@ async function fetchScript(connectionId, schema, type, name, dbType) {
 }
 
 export default function ScriptViewModal({ connectionId, schema, type, names, dbType, onClose }) {
-  const [parts, setParts] = useState([]); // per-object script strings
   const [script, setScript] = useState('');
   const [loading, setLoading] = useState(true);
-  const [executing, setExecuting] = useState(false);
-  const [execResult, setExecResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setExecResult(null);
     Promise.all(
       names.map(name =>
         fetchScript(connectionId, schema, type, name, dbType)
@@ -63,43 +59,12 @@ export default function ScriptViewModal({ connectionId, schema, type, names, dbT
       )
     ).then(fetched => {
       if (cancelled) return;
-      setParts(fetched);
       setScript(fetched.join('\n\n'));
       setLoading(false);
     });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, schema, type, names.join(','), dbType]);
-
-  async function handleExecute() {
-    setExecuting(true);
-    setExecResult(null);
-    try {
-      // Each part = one object's script → execute as separate statements
-      const statements = parts.map(p => {
-        // Strip our separator comment header
-        return p.replace(/^--.*\n/, '').trim().replace(/;\s*$/, '');
-      }).filter(Boolean);
-
-      if (statements.length === 1) {
-        const r = await api.executeQuery(connectionId, statements[0], schema);
-        setExecResult({ success: true, message: r.message || `완료 (${r.rowCount ?? 0} rows)` });
-      } else {
-        const r = await api.executeScript(connectionId, statements, schema);
-        const failed = r.results?.find(x => !x.ok);
-        setExecResult({
-          success: r.success,
-          message: r.success
-            ? `${r.executedCount}개 구문 실행 완료`
-            : `구문 ${(failed?.index ?? '?') + 1} 실행 오류: ${failed?.error || ''}`,
-        });
-      }
-    } catch (e) {
-      setExecResult({ success: false, message: e.message });
-    } finally {
-      setExecuting(false);
-    }
-  }
 
   async function handleCopy() {
     try { await navigator.clipboard.writeText(script); } catch { /* ignore */ }
@@ -120,7 +85,7 @@ export default function ScriptViewModal({ connectionId, schema, type, names, dbT
             readOnly
             value={script}
             style={{
-              width: '100%', height: 420, fontFamily: 'monospace', fontSize: 12,
+              width: '100%', height: 440, fontFamily: 'monospace', fontSize: 12,
               background: 'var(--bg-editor, #1a1a1a)', color: 'var(--text-primary)',
               border: '1px solid var(--border)', borderRadius: 3,
               padding: 10, resize: 'vertical', boxSizing: 'border-box',
@@ -128,29 +93,9 @@ export default function ScriptViewModal({ connectionId, schema, type, names, dbT
             }}
           />
         )}
-
-        {execResult && (
-          <div style={{
-            padding: '8px 12px', borderRadius: 3, fontSize: 12,
-            background: execResult.success ? 'rgba(76,175,80,0.15)' : 'rgba(244,71,71,0.15)',
-            color: execResult.success ? 'var(--success)' : 'var(--danger)',
-            border: `1px solid ${execResult.success ? 'var(--success-dim, #4caf50)' : 'var(--danger)'}`,
-          }}>
-            {execResult.message}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button className="btn-secondary" onClick={handleCopy} disabled={loading}>
             {copied ? '✓ 복사됨' : '📋 복사'}
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleExecute}
-            disabled={loading || executing}
-            title="스크립트를 DB에 실행합니다"
-          >
-            {executing ? '실행 중...' : '▶ Execute'}
           </button>
         </div>
       </div>
