@@ -3,9 +3,14 @@ import { useApp, openTab } from '../../../store/AppContext.jsx';
 import { api } from '../../../api/client.js';
 import TableSpecModal from '../../ObjectDetail/TableSpecModal.jsx';
 
-const OBJECT_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'SEQUENCE', 'SYNONYM'];
-const TYPE_ICONS = { TABLE: '▦', VIEW: '◧', PROCEDURE: '⊕', FUNCTION: 'ƒ', PACKAGE: '⊞', TRIGGER: '⚡', SEQUENCE: '∞', SYNONYM: '≡' };
-const TYPE_LABELS = { TABLE: 'Tables', VIEW: 'Views', PROCEDURE: 'Procedures', FUNCTION: 'Functions', PACKAGE: 'Packages', TRIGGER: 'Triggers', SEQUENCE: 'Sequences', SYNONYM: 'Synonyms' };
+const ORACLE_OBJECT_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'SEQUENCE', 'SYNONYM'];
+const POSTGRES_OBJECT_TYPES = ['TABLE', 'VIEW', 'MATERIALIZED VIEW', 'FUNCTION', 'PROCEDURE', 'SEQUENCE', 'TRIGGER'];
+const TYPE_ICONS = { TABLE: '▦', VIEW: '◧', 'MATERIALIZED VIEW': '◫', PROCEDURE: '⊕', FUNCTION: 'ƒ', PACKAGE: '⊞', TRIGGER: '⚡', SEQUENCE: '∞', SYNONYM: '≡' };
+const TYPE_LABELS = { TABLE: 'Tables', VIEW: 'Views', 'MATERIALIZED VIEW': 'Materialized Views', PROCEDURE: 'Procedures', FUNCTION: 'Functions', PACKAGE: 'Packages', TRIGGER: 'Triggers', SEQUENCE: 'Sequences', SYNONYM: 'Synonyms' };
+
+function objectTypesFor(dbType) {
+  return dbType === 'postgres' ? POSTGRES_OBJECT_TYPES : ORACLE_OBJECT_TYPES;
+}
 
 // Static style objects — created once, not on every render
 const STYLE_SCHEMA  = { display: 'flex', alignItems: 'center', padding: '3px 8px', cursor: 'pointer', userSelect: 'none' };
@@ -42,6 +47,10 @@ export default function ObjectExplorer() {
   const { state, dispatch } = useApp();
   const { activeConnectionId, connectionStatuses, expandedNodes } = state;
   const isConnected = connectionStatuses[activeConnectionId] === 'connected';
+
+  // Object types shown depend on the active connection's DB type
+  const activeConn = state.connections.find(c => c.id === activeConnectionId);
+  const OBJECT_TYPES = objectTypesFor(activeConn?.dbType);
 
   const [schemas, setSchemas] = useState([]);
   const [objects, setObjects] = useState({});

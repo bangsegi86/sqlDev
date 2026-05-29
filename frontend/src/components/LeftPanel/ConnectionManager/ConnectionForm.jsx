@@ -6,10 +6,12 @@ import { useApp } from '../../../store/AppContext.jsx';
 export default function ConnectionForm({ onClose, editing = null }) {
   const { dispatch } = useApp();
   const [form, setForm] = useState({
+    dbType: editing?.dbType || 'oracle',
     name: editing?.name || '',
     host: editing?.host || '',
-    port: editing?.port || 1521,
+    port: editing?.port || (editing?.dbType === 'postgres' ? 5432 : 1521),
     serviceName: editing?.serviceName || '',
+    database: editing?.database || '',
     username: editing?.username || '',
     password: '',
   });
@@ -19,7 +21,21 @@ export default function ConnectionForm({ onClose, editing = null }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const isPg = form.dbType === 'postgres';
+  const targetKey = isPg ? 'database' : 'serviceName';
+  const targetLabel = isPg ? '데이터베이스명' : '서비스명';
+
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); setTestResult(null); setError(''); }
+
+  // DB 종류 변경 시 기본 포트를 알맞게 맞춰준다 (사용자가 손대지 않은 경우).
+  function setDbType(v) {
+    setForm(f => {
+      const wasDefault = String(f.port) === '1521' || String(f.port) === '5432' || !f.port;
+      const nextPort = wasDefault ? (v === 'postgres' ? 5432 : 1521) : f.port;
+      return { ...f, dbType: v, port: nextPort };
+    });
+    setTestResult(null); setError('');
+  }
 
   async function handleTest() {
     setTesting(true); setTestResult(null); setError('');
@@ -32,14 +48,14 @@ export default function ConnectionForm({ onClose, editing = null }) {
   }
 
   async function handleSave(andConnect = false) {
-    if (!form.name || !form.host || !form.serviceName || !form.username) {
-      setError('이름, 호스트, 서비스명, 사용자명은 필수입니다.');
+    if (!form.name || !form.host || !form[targetKey] || !form.username) {
+      setError(`이름, 호스트, ${targetLabel}, 사용자명은 필수입니다.`);
       return;
     }
     if (!editing && !form.password) { setError('비밀번호는 필수입니다.'); return; }
     setSaving(true); setError('');
     try {
-      const payload = { ...form, port: Number(form.port) || 1521 };
+      const payload = { ...form, port: Number(form.port) || (isPg ? 5432 : 1521) };
       if (!payload.password) delete payload.password;
       let conn;
       if (editing) {
@@ -64,9 +80,18 @@ export default function ConnectionForm({ onClose, editing = null }) {
   return (
     <Modal title={editing ? '연결 편집' : '새 연결'} onClose={onClose} width={460}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {['name', 'host', 'serviceName', 'username'].map(k => (
-          <Field key={k} label={LABELS[k]} value={form[k]} onChange={v => set(k, v)} />
-        ))}
+        <div>
+          <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: 'var(--text-secondary)' }}>데이터베이스 종류</label>
+          <select value={form.dbType} onChange={e => setDbType(e.target.value)}
+            style={{ width: '100%', padding: '6px 8px', background: 'var(--bg-input, #1e1e1e)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 3 }}>
+            <option value="oracle">Oracle</option>
+            <option value="postgres">PostgreSQL</option>
+          </select>
+        </div>
+        <Field label={LABELS.name} value={form.name} onChange={v => set('name', v)} />
+        <Field label={LABELS.host} value={form.host} onChange={v => set('host', v)} />
+        <Field label={targetLabel} value={form[targetKey]} onChange={v => set(targetKey, v)} />
+        <Field label={LABELS.username} value={form.username} onChange={v => set('username', v)} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <Field label="포트" value={form.port} type="number" onChange={v => set('port', v)} />
           <div style={{ position: 'relative' }}>

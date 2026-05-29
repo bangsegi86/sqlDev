@@ -26,24 +26,28 @@ async function writeData(data) {
 
 export async function getAll() {
   const { connections } = await readData();
-  return connections.map(c => ({ ...c, password: '***' }));
+  return connections.map(c => ({ ...c, dbType: c.dbType || 'oracle', password: '***' }));
 }
 
 export async function getById(id) {
   const { connections } = await readData();
   const conn = connections.find(c => c.id === id);
   if (!conn) throw Object.assign(new Error('Connection not found'), { status: 404 });
-  return { ...conn, password: decrypt(conn.password) };
+  return { ...conn, dbType: conn.dbType || 'oracle', password: decrypt(conn.password) };
 }
 
 export async function create(data) {
   const { connections } = await readData();
+  const dbType = data.dbType === 'postgres' ? 'postgres' : 'oracle';
+  const defaultPort = dbType === 'postgres' ? 5432 : 1521;
   const conn = {
     id: uuidv4(),
+    dbType,
     name: data.name,
     host: data.host,
-    port: Number(data.port) || 1521,
-    serviceName: data.serviceName,
+    port: Number(data.port) || defaultPort,
+    serviceName: data.serviceName,      // Oracle service name
+    database: data.database,            // PostgreSQL database name
     username: data.username,
     password: encrypt(data.password),
     createdAt: new Date().toISOString(),
@@ -62,10 +66,12 @@ export async function update(id, data) {
   const existing = connections[idx];
   const updated = {
     ...existing,
+    dbType: data.dbType ?? existing.dbType ?? 'oracle',
     name: data.name ?? existing.name,
     host: data.host ?? existing.host,
     port: data.port ? Number(data.port) : existing.port,
     serviceName: data.serviceName ?? existing.serviceName,
+    database: data.database ?? existing.database,
     username: data.username ?? existing.username,
     password: data.password ? encrypt(data.password) : existing.password,
     updatedAt: new Date().toISOString(),

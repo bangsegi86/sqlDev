@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import * as oracle from '../services/oracleService.js';
+import * as oracle from '../services/dbService.js';
 import * as store from '../services/connectionStore.js';
 import { analyzePLSQL } from '../services/plsqlAnalyzer.js';
 import { analyzePlan } from '../services/planAnalyzer.js';
@@ -12,10 +12,17 @@ function wrap(fn) {
 }
 
 router.post('/test', wrap(async (req, res) => {
-  const { host, port, serviceName, username, password } = req.body;
-  if (!host || !serviceName || !username || !password)
-    return res.status(400).json({ error: 'host, serviceName, username, password are required' });
-  res.json(await oracle.testConnection({ host, port: Number(port) || 1521, serviceName, username, password }));
+  const { host, port, serviceName, database, username, password, dbType = 'oracle' } = req.body;
+  const isPg = dbType === 'postgres';
+  const target = isPg ? database : serviceName;
+  const targetLabel = isPg ? 'database' : 'serviceName';
+  if (!host || !target || !username || !password)
+    return res.status(400).json({ error: `host, ${targetLabel}, username, password are required` });
+  const defaultPort = isPg ? 5432 : 1521;
+  res.json(await oracle.testConnection({
+    dbType, host, port: Number(port) || defaultPort,
+    serviceName, database, username, password,
+  }));
 }));
 
 router.post('/connect/:id', wrap(async (req, res) => {
