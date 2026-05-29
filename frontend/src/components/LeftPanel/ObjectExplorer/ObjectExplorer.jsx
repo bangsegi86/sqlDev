@@ -14,10 +14,10 @@ const STYLE_ITEM    = { display: 'flex', alignItems: 'center', padding: '3px 8px
 const STYLE_ICON_SM = { color: 'var(--text-secondary)', fontSize: 11, marginRight: 4 };
 
 // Memoized leaf item — only re-renders when its own props change.
-// Multi-select (TABLE): Ctrl+click toggles, Shift+click range-selects.
+// TABLE: single-click selects, double-click opens tab, Shift+click range-selects.
 // No checkboxes — selection shown by background highlight only.
 const ObjectItem = memo(function ObjectItem({
-  name, type, isFiltering, objectFilter, onItemClick, isSelected, onContext,
+  name, type, isFiltering, objectFilter, onItemClick, onItemDoubleClick, isSelected, onContext,
 }) {
   const label = isFiltering
     ? highlightMatch(name, objectFilter)
@@ -26,6 +26,7 @@ const ObjectItem = memo(function ObjectItem({
     <div
       style={{ ...STYLE_ITEM, background: isSelected ? 'rgba(79,193,255,0.18)' : undefined }}
       onClick={(e) => onItemClick(e, name)}
+      onDoubleClick={onItemDoubleClick ? (e) => onItemDoubleClick(e, name) : undefined}
       onContextMenu={onContext
         ? (e) => { e.preventDefault(); e.stopPropagation(); onContext(e, name); }
         : undefined
@@ -262,19 +263,15 @@ export default function ObjectExplorer() {
                         {isLoading && <div style={{ paddingLeft: 40, color: 'var(--text-dim)', fontSize: 11 }}>Loading...</div>}
                         {displayList?.map(name => {
                           if (type === 'TABLE') {
-                            // TABLE: Ctrl+click toggles, Shift+click range-selects, plain click opens tab
+                            // TABLE: single-click → select/toggle, double-click → open tab
+                            // Shift+click → range-select
                             const isSelected = sel.schema === schema && sel.names.has(name);
+
                             const handleClick = (e, n) => {
-                              if (e.ctrlKey || e.metaKey) {
-                                e.preventDefault();
-                                setSel(prev => {
-                                  const names = prev.schema === schema ? new Set(prev.names) : new Set();
-                                  if (names.has(n)) names.delete(n); else names.add(n);
-                                  if (names.size === 0) return { schema: null, names: new Set() };
-                                  return { schema, names };
-                                });
-                                lastSelRef.current = { schema, name: n };
-                              } else if (e.shiftKey) {
+                              // Skip the 2nd onClick that fires right before onDoubleClick
+                              if (e.detail > 1) return;
+
+                              if (e.shiftKey) {
                                 e.preventDefault();
                                 const list = displayList;
                                 const last = lastSelRef.current;
@@ -289,15 +286,25 @@ export default function ObjectExplorer() {
                                     return { schema, names };
                                   });
                                 } else {
-                                  // No anchor yet — just select this one
                                   setSel({ schema, names: new Set([n]) });
                                   lastSelRef.current = { schema, name: n };
                                 }
                               } else {
+                                // Plain click or Ctrl+click → toggle selection
+                                setSel(prev => {
+                                  const names = prev.schema === schema ? new Set(prev.names) : new Set();
+                                  if (names.has(n)) names.delete(n); else names.add(n);
+                                  if (names.size === 0) return { schema: null, names: new Set() };
+                                  return { schema, names };
+                                });
                                 lastSelRef.current = { schema, name: n };
-                                objectClickHandler('TABLE', n);
                               }
                             };
+
+                            const handleDoubleClick = (_e, n) => {
+                              objectClickHandler('TABLE', n);
+                            };
+
                             return (
                               <ObjectItem
                                 key={name}
@@ -306,6 +313,7 @@ export default function ObjectExplorer() {
                                 isFiltering={isObjFiltering}
                                 objectFilter={isObjFiltering ? objectFilter.trim() : ''}
                                 onItemClick={handleClick}
+                                onItemDoubleClick={handleDoubleClick}
                                 isSelected={isSelected}
                                 onContext={(e, n) => openObjContext(e, schema, n)}
                               />
