@@ -2,25 +2,30 @@ import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useApp, openTab } from '../../../store/AppContext.jsx';
 import { api } from '../../../api/client.js';
 import TableSpecModal from '../../ObjectDetail/TableSpecModal.jsx';
+import ScriptViewModal from '../../ObjectDetail/ScriptViewModal.jsx';
 
 const ORACLE_OBJECT_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'SEQUENCE', 'SYNONYM'];
 const POSTGRES_OBJECT_TYPES = ['TABLE', 'VIEW', 'MATERIALIZED VIEW', 'FUNCTION', 'PROCEDURE', 'SEQUENCE', 'TRIGGER'];
-const TYPE_ICONS = { TABLE: '▦', VIEW: '◧', 'MATERIALIZED VIEW': '◫', PROCEDURE: '⊕', FUNCTION: 'ƒ', PACKAGE: '⊞', TRIGGER: '⚡', SEQUENCE: '∞', SYNONYM: '≡' };
-const TYPE_LABELS = { TABLE: 'Tables', VIEW: 'Views', 'MATERIALIZED VIEW': 'Materialized Views', PROCEDURE: 'Procedures', FUNCTION: 'Functions', PACKAGE: 'Packages', TRIGGER: 'Triggers', SEQUENCE: 'Sequences', SYNONYM: 'Synonyms' };
+const TYPE_ICONS = {
+  TABLE: '▦', VIEW: '◧', 'MATERIALIZED VIEW': '◫',
+  PROCEDURE: '⊕', FUNCTION: 'ƒ', PACKAGE: '⊞',
+  TRIGGER: '⚡', SEQUENCE: '∞', SYNONYM: '≡',
+};
+const TYPE_LABELS = {
+  TABLE: 'Tables', VIEW: 'Views', 'MATERIALIZED VIEW': 'Materialized Views',
+  PROCEDURE: 'Procedures', FUNCTION: 'Functions', PACKAGE: 'Packages',
+  TRIGGER: 'Triggers', SEQUENCE: 'Sequences', SYNONYM: 'Synonyms',
+};
 
 function objectTypesFor(dbType) {
   return dbType === 'postgres' ? POSTGRES_OBJECT_TYPES : ORACLE_OBJECT_TYPES;
 }
 
-// Static style objects — created once, not on every render
 const STYLE_SCHEMA  = { display: 'flex', alignItems: 'center', padding: '3px 8px', cursor: 'pointer', userSelect: 'none' };
 const STYLE_TYPE    = { display: 'flex', alignItems: 'center', padding: '3px 8px 3px 24px', cursor: 'pointer', userSelect: 'none' };
 const STYLE_ITEM    = { display: 'flex', alignItems: 'center', padding: '3px 8px 3px 40px', cursor: 'pointer', userSelect: 'none' };
 const STYLE_ICON_SM = { color: 'var(--text-secondary)', fontSize: 11, marginRight: 4 };
 
-// Memoized leaf item — only re-renders when its own props change.
-// TABLE: single-click selects, double-click opens tab, Shift+click range-selects.
-// No checkboxes — selection shown by background highlight only.
 const ObjectItem = memo(function ObjectItem({
   name, type, isFiltering, objectFilter, onItemClick, onItemDoubleClick, isSelected, onContext,
 }) {
@@ -32,10 +37,7 @@ const ObjectItem = memo(function ObjectItem({
       style={{ ...STYLE_ITEM, background: isSelected ? 'rgba(79,193,255,0.18)' : undefined }}
       onClick={onItemClick ? (e) => onItemClick(e, name) : undefined}
       onDoubleClick={onItemDoubleClick ? (e) => onItemDoubleClick(e, name) : undefined}
-      onContextMenu={onContext
-        ? (e) => { e.preventDefault(); e.stopPropagation(); onContext(e, name); }
-        : undefined
-      }
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onContext) onContext(e, name); }}
     >
       <span style={STYLE_ICON_SM}>{TYPE_ICONS[type]}</span>
       {label}
@@ -48,9 +50,9 @@ export default function ObjectExplorer() {
   const { activeConnectionId, connectionStatuses, expandedNodes } = state;
   const isConnected = connectionStatuses[activeConnectionId] === 'connected';
 
-  // Object types shown depend on the active connection's DB type
   const activeConn = state.connections.find(c => c.id === activeConnectionId);
   const OBJECT_TYPES = objectTypesFor(activeConn?.dbType);
+  const dbType = activeConn?.dbType || 'oracle';
 
   const [schemas, setSchemas] = useState([]);
   const [objects, setObjects] = useState({});
@@ -60,15 +62,19 @@ export default function ObjectExplorer() {
   const [objectFilter, setObjectFilter] = useState('');
   const [filterCollapsed, setFilterCollapsed] = useState(new Set());
 
-  // Multi-select of tables (scoped to a single schema) for spec export
-  const [sel, setSel] = useState({ schema: null, names: new Set() });
-  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, name }
-  const [specModal, setSpecModal] = useState(null); // { schema, tables }
+  // Multi-select: scoped to same schema + same type
+  // { schema: string|null, type: string|null, names: Set<string> }
+  const [sel, setSel] = useState({ schema: null, type: null, names: new Set() });
+  const selRef = useRef(sel);
+  selRef.current = sel;
 
-  // Tracks the last item clicked (for Shift+click range-select)
-  const lastSelRef = useRef(null); // { schema, name }
+  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, type, name }
+  const [specModal, setSpecModal] = useState(null); // { schema, tables[] }
+  const [scriptModal, setScriptModal] = useState(null); // { schema, type, names[] }
 
-  // Keep latest state accessible inside stable callbacks without re-creating them
+  // Anchor for Shift+click range-select: { schema, type, name }
+  const lastSelRef = useRef(null);
+
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -87,7 +93,6 @@ export default function ObjectExplorer() {
       .finally(() => setLoading(l => ({ ...l, schemas: false })));
   }, [activeConnectionId, isConnected]);
 
-  // Auto-load all types for expanded schemas when object filter is active
   useEffect(() => {
     if (!objectFilter.trim() || !activeConnectionId) return;
     schemas.forEach(schema => {
@@ -101,7 +106,7 @@ export default function ObjectExplorer() {
     });
   }, [objectFilter, expandedNodes, activeConnectionId]);
 
-  // Close context menu on any outside click
+  // Close context menu on outside click
   useEffect(() => {
     if (!ctxMenu) return;
     const close = () => setCtxMenu(null);
@@ -109,21 +114,9 @@ export default function ObjectExplorer() {
     return () => document.removeEventListener('mousedown', close);
   }, [ctxMenu]);
 
-  // Reset table selection when the active connection changes
-  useEffect(() => { setSel({ schema: null, names: new Set() }); }, [activeConnectionId]);
-
-  const openObjContext = useCallback((e, schema, name) => {
-    setCtxMenu({ x: e.clientX, y: e.clientY, schema, name });
-  }, []);
-
-  function openSpecFor(schema, name) {
-    const selectedHere = sel.schema === schema ? sel.names : new Set();
-    const tables = selectedHere.size
-      ? (selectedHere.has(name) ? [...selectedHere] : [...selectedHere, name])
-      : [name];
-    setSpecModal({ schema, tables });
-    setCtxMenu(null);
-  }
+  useEffect(() => {
+    setSel({ schema: null, type: null, names: new Set() });
+  }, [activeConnectionId]);
 
   if (!activeConnectionId || !isConnected) return null;
 
@@ -159,7 +152,7 @@ export default function ObjectExplorer() {
 
   const makeObjectClickHandler = useCallback((schema) => (type, name) => {
     const s = stateRef.current;
-    const tabType = ['TABLE', 'VIEW'].includes(type) ? 'table'
+    const tabType = ['TABLE', 'VIEW', 'MATERIALIZED VIEW'].includes(type) ? 'table'
       : type === 'SEQUENCE' ? 'sequence'
       : type === 'SYNONYM' ? 'synonym' : 'source';
     openTab(dispatch, s, {
@@ -171,10 +164,86 @@ export default function ObjectExplorer() {
     });
   }, [dispatch, activeConnectionId]);
 
+  // Build click/dblclick/context handlers for a (schema, type, displayList) group
+  function makeHandlers(schema, type, displayList, objectClickHandler) {
+    const handleClick = (e, n) => {
+      if (e.detail > 1) return; // skip 2nd click before dblclick
+      const cur = selRef.current;
+      const sameGroup = cur.schema === schema && cur.type === type;
+
+      if (e.shiftKey) {
+        e.preventDefault();
+        const last = lastSelRef.current;
+        const fromIdx = (last?.schema === schema && last?.type === type && displayList)
+          ? displayList.indexOf(last.name) : -1;
+        const toIdx = displayList ? displayList.indexOf(n) : -1;
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const [s, t] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+          const range = displayList.slice(s, t + 1);
+          setSel(prev => {
+            const names = (prev.schema === schema && prev.type === type) ? new Set(prev.names) : new Set();
+            range.forEach(rn => names.add(rn));
+            return { schema, type, names };
+          });
+        } else {
+          setSel({ schema, type, names: new Set([n]) });
+          lastSelRef.current = { schema, type, name: n };
+        }
+      } else if (e.ctrlKey || e.metaKey) {
+        setSel(prev => {
+          const names = (prev.schema === schema && prev.type === type) ? new Set(prev.names) : new Set();
+          if (names.has(n)) names.delete(n); else names.add(n);
+          if (names.size === 0) return { schema: null, type: null, names: new Set() };
+          return { schema, type, names };
+        });
+        lastSelRef.current = { schema, type, name: n };
+      } else {
+        setSel({ schema, type, names: new Set([n]) });
+        lastSelRef.current = { schema, type, name: n };
+      }
+    };
+
+    const handleDblClick = (_e, n) => objectClickHandler(type, n);
+
+    const handleContext = (e, n) => {
+      const cur = selRef.current;
+      // If right-clicking outside current selection, select only this item
+      if (cur.schema !== schema || cur.type !== type || !cur.names.has(n)) {
+        setSel({ schema, type, names: new Set([n]) });
+        lastSelRef.current = { schema, type, name: n };
+      }
+      setCtxMenu({ x: e.clientX, y: e.clientY, schema, type, name: n });
+    };
+
+    return { handleClick, handleDblClick, handleContext };
+  }
+
+  // ── Derived selection info ──
+  const selCount = sel.names.size;
+  const selNames = selCount > 0 ? [...sel.names] : [];
+
+  function openScriptForCtx() {
+    const cur = selRef.current;
+    const names = (ctxMenu && cur.schema === ctxMenu.schema && cur.type === ctxMenu.type && cur.names.size > 0)
+      ? [...cur.names]
+      : [ctxMenu.name];
+    setScriptModal({ schema: ctxMenu.schema, type: ctxMenu.type, names });
+    setCtxMenu(null);
+  }
+
+  function openSpecForCtx() {
+    const cur = selRef.current;
+    const allNames = (cur.schema === ctxMenu.schema && cur.type === 'TABLE' && cur.names.size > 0)
+      ? (cur.names.has(ctxMenu.name) ? [...cur.names] : [...cur.names, ctxMenu.name])
+      : [ctxMenu.name];
+    setSpecModal({ schema: ctxMenu.schema, tables: allNames });
+    setCtxMenu(null);
+  }
+
+  // ── render ──
   const filteredSchemas = schemaFilter.trim()
     ? schemas.filter(s => s.toLowerCase().includes(schemaFilter.toLowerCase()))
     : schemas;
-
   const objFilterLower = objectFilter.toLowerCase().trim();
   const isObjFiltering = !!objFilterLower;
 
@@ -184,27 +253,39 @@ export default function ObjectExplorer() {
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
       </div>
 
-      {sel.names.size > 0 && (
+      {/* Selection banner */}
+      {selCount > 0 && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
           background: 'rgba(79,193,255,0.12)', borderBottom: '1px solid var(--border)', flexShrink: 0,
+          flexWrap: 'wrap',
         }}>
-          <span style={{ fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700 }}>
-            {sel.names.size}개 선택
+          <span style={{ fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            {selCount}개 선택 · {TYPE_LABELS[sel.type] || sel.type}
           </span>
-          <button
-            className="btn-secondary"
-            style={{ padding: '2px 8px', fontSize: 11, marginLeft: 'auto' }}
-            onClick={() => setSpecModal({ schema: sel.schema, tables: [...sel.names] })}
-          >📑 명세서 만들기</button>
-          <button
-            onClick={() => setSel({ schema: null, names: new Set() })}
-            title="선택 해제"
-            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13 }}
-          >✕</button>
+          <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
+            {sel.type === 'TABLE' && (
+              <button
+                className="btn-secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={() => setSpecModal({ schema: sel.schema, tables: selNames })}
+              >📑 명세서</button>
+            )}
+            <button
+              className="btn-secondary"
+              style={{ padding: '2px 8px', fontSize: 11 }}
+              onClick={() => setScriptModal({ schema: sel.schema, type: sel.type, names: selNames })}
+            >📄 스크립트</button>
+            <button
+              onClick={() => setSel({ schema: null, type: null, names: new Set() })}
+              title="선택 해제"
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}
+            >✕</button>
+          </div>
         </div>
       )}
 
+      {/* Schema filter */}
       <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput placeholder="스키마 필터..." value={schemaFilter} onChange={setSchemaFilter} />
         {schemaFilter && (
@@ -214,6 +295,7 @@ export default function ObjectExplorer() {
         )}
       </div>
 
+      {/* Object filter */}
       <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput placeholder="오브젝트 필터..." value={objectFilter} onChange={setObjectFilter} />
         {isObjFiltering && (
@@ -221,6 +303,7 @@ export default function ObjectExplorer() {
         )}
       </div>
 
+      {/* Tree */}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
         {schemaError && (
@@ -255,6 +338,9 @@ export default function ObjectExplorer() {
                 const showObjects = isObjFiltering ? !filterCollapsed.has(typeNodeId) : typeExpanded;
                 const displayList = isObjFiltering ? filteredObjList : objList;
 
+                const { handleClick, handleDblClick, handleContext } =
+                  makeHandlers(schema, type, displayList, objectClickHandler);
+
                 return (
                   <div key={type}>
                     <div style={STYLE_TYPE} onClick={() => handleTypeClick(schema, type, isObjFiltering, expandedNodes)}>
@@ -271,68 +357,7 @@ export default function ObjectExplorer() {
                       <div>
                         {isLoading && <div style={{ paddingLeft: 40, color: 'var(--text-dim)', fontSize: 11 }}>Loading...</div>}
                         {displayList?.map(name => {
-                          if (type === 'TABLE') {
-                            // TABLE: single-click → select/toggle, double-click → open tab
-                            // Shift+click → range-select
-                            const isSelected = sel.schema === schema && sel.names.has(name);
-
-                            const handleClick = (e, n) => {
-                              // Skip the 2nd onClick that fires right before onDoubleClick
-                              if (e.detail > 1) return;
-
-                              if (e.shiftKey) {
-                                e.preventDefault();
-                                const list = displayList;
-                                const last = lastSelRef.current;
-                                const fromIdx = (last?.schema === schema && list) ? list.indexOf(last.name) : -1;
-                                const toIdx = list ? list.indexOf(n) : -1;
-                                if (fromIdx !== -1 && toIdx !== -1) {
-                                  const [s, t] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
-                                  const range = list.slice(s, t + 1);
-                                  setSel(prev => {
-                                    const names = prev.schema === schema ? new Set(prev.names) : new Set();
-                                    range.forEach(rn => names.add(rn));
-                                    return { schema, names };
-                                  });
-                                } else {
-                                  setSel({ schema, names: new Set([n]) });
-                                  lastSelRef.current = { schema, name: n };
-                                }
-                              } else if (e.ctrlKey || e.metaKey) {
-                                // Ctrl+click → toggle (accumulate)
-                                setSel(prev => {
-                                  const names = prev.schema === schema ? new Set(prev.names) : new Set();
-                                  if (names.has(n)) names.delete(n); else names.add(n);
-                                  if (names.size === 0) return { schema: null, names: new Set() };
-                                  return { schema, names };
-                                });
-                                lastSelRef.current = { schema, name: n };
-                              } else {
-                                // Plain click → select only this one
-                                setSel({ schema, names: new Set([n]) });
-                                lastSelRef.current = { schema, name: n };
-                              }
-                            };
-
-                            const handleDoubleClick = (_e, n) => {
-                              objectClickHandler('TABLE', n);
-                            };
-
-                            return (
-                              <ObjectItem
-                                key={name}
-                                name={name}
-                                type={type}
-                                isFiltering={isObjFiltering}
-                                objectFilter={isObjFiltering ? objectFilter.trim() : ''}
-                                onItemClick={handleClick}
-                                onItemDoubleClick={handleDoubleClick}
-                                isSelected={isSelected}
-                                onContext={(e, n) => openObjContext(e, schema, n)}
-                              />
-                            );
-                          }
-                          // Non-TABLE: double-click opens tab, single click no-op
+                          const isSelected = sel.schema === schema && sel.type === type && sel.names.has(name);
                           return (
                             <ObjectItem
                               key={name}
@@ -340,9 +365,10 @@ export default function ObjectExplorer() {
                               type={type}
                               isFiltering={isObjFiltering}
                               objectFilter={isObjFiltering ? objectFilter.trim() : ''}
-                              onItemClick={null}
-                              onItemDoubleClick={(e, n) => objectClickHandler(type, n)}
-                              isSelected={false}
+                              onItemClick={handleClick}
+                              onItemDoubleClick={handleDblClick}
+                              isSelected={isSelected}
+                              onContext={handleContext}
                             />
                           );
                         })}
@@ -356,7 +382,7 @@ export default function ObjectExplorer() {
         })}
       </div>
 
-      {/* Right-click context menu on a table */}
+      {/* Right-click context menu */}
       {ctxMenu && (
         <div
           onMouseDown={e => e.stopPropagation()}
@@ -364,25 +390,47 @@ export default function ObjectExplorer() {
             position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000,
             background: 'var(--bg-panel)', border: '1px solid var(--border)',
             borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-            minWidth: 200, paddingBlock: 4,
+            minWidth: 210, paddingBlock: 4,
           }}
         >
-          <div
-            onClick={() => openSpecFor(ctxMenu.schema, ctxMenu.name)}
-            style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            📑 테이블 명세서 만들기
-            {sel.schema === ctxMenu.schema && sel.names.size > 0 && (
-              <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>
-                ({sel.names.has(ctxMenu.name) ? sel.names.size : sel.names.size + 1}개)
-              </span>
-            )}
-          </div>
+          {/* selected count label */}
+          {(() => {
+            const cur = selRef.current;
+            const count = (cur.schema === ctxMenu.schema && cur.type === ctxMenu.type)
+              ? cur.names.size : 1;
+            return count > 1 ? (
+              <div style={{ padding: '4px 14px 2px', fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700 }}>
+                {count}개 선택됨
+              </div>
+            ) : null;
+          })()}
+
+          {/* 탭으로 열기 */}
+          <CtxMenuItem onClick={() => {
+            objectClickHandler(ctxMenu.type, ctxMenu.name);
+            setCtxMenu(null);
+          }}>🔗 탭으로 열기</CtxMenuItem>
+
+          {/* 스크립트 보기 (모든 타입) */}
+          <CtxMenuItem onClick={openScriptForCtx}>
+            📄 스크립트 보기 / Execute
+          </CtxMenuItem>
+
+          {/* 테이블 명세서는 TABLE에만 */}
+          {ctxMenu.type === 'TABLE' && (
+            <CtxMenuItem onClick={openSpecForCtx}>
+              📑 테이블 명세서 만들기
+              {(() => {
+                const cur = selRef.current;
+                const count = (cur.schema === ctxMenu.schema && cur.type === 'TABLE') ? cur.names.size : 1;
+                return count > 1 ? <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>({count}개)</span> : null;
+              })()}
+            </CtxMenuItem>
+          )}
         </div>
       )}
 
+      {/* Modals */}
       {specModal && (
         <TableSpecModal
           connectionId={activeConnectionId}
@@ -391,6 +439,30 @@ export default function ObjectExplorer() {
           onClose={() => setSpecModal(null)}
         />
       )}
+      {scriptModal && (
+        <ScriptViewModal
+          connectionId={activeConnectionId}
+          schema={scriptModal.schema}
+          type={scriptModal.type}
+          names={scriptModal.names}
+          dbType={dbType}
+          onClose={() => setScriptModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Context menu item ──
+function CtxMenuItem({ onClick, children }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {children}
     </div>
   );
 }
