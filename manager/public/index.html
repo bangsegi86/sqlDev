@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SQLDev 서버 관리자</title>
+<style>
+  :root {
+    --bg: #1e1e22; --panel: #25252b; --border: #3a3a42; --text: #e4e4e8;
+    --dim: #8a8a94; --accent: #4fc1ff; --green: #4caf50; --red: #f44747;
+    --amber: #e0a030; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif; font-size: 14px;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header .logo { font-size: 22px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); }
+  .dot.warn { background: var(--amber); }
+  main { flex: 1; display: flex; min-height: 0; }
+  .left { width: 340px; padding: 18px; border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+  .right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .status-line { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .kv span:first-child { color: var(--dim); }
+  .kv .mono { font-family: var(--mono); }
+  .btns { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  button {
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; cursor: pointer;
+    font-size: 14px; font-weight: 600; color: var(--text); background: #2f2f37; transition: .12s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.2); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--green); border-color: var(--green); color: #0d2410; }
+  button.danger  { background: var(--red); border-color: var(--red); color: #2a0c0c; }
+  button.accent  { background: var(--accent); border-color: var(--accent); color: #06283a; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .row label { color: var(--dim); font-size: 13px; min-width: 60px; }
+  input {
+    background: #1a1a1e; border: 1px solid var(--border); border-radius: 5px; color: var(--text);
+    padding: 7px 9px; font-size: 13px; width: 90px; font-family: var(--mono);
+  }
+  .urls a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 13px; }
+  .urls a:hover { text-decoration: underline; }
+  .checklist { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  .checklist li { padding: 4px 0; display: flex; gap: 8px; align-items: center; }
+  .toast {
+    position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--accent);
+    border-radius: 6px; padding: 10px 16px; font-size: 13px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    opacity: 0; transform: translateY(10px); transition: .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .log-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); flex-shrink: 0; }
+  .log-head h2 { font-size: 13px; margin: 0; color: var(--dim); letter-spacing: 1px; }
+  #log {
+    flex: 1; overflow-y: auto; margin: 0; padding: 12px 16px; font-family: var(--mono);
+    font-size: 12px; line-height: 1.55; background: #161619; white-space: pre-wrap; word-break: break-all;
+  }
+  .l-err { color: #ff8a8a; } .l-sys { color: var(--accent); } .l-out { color: #cfcfd6; }
+  .l-time { color: #5a5a64; margin-right: 8px; }
+  .hint { font-size: 12px; color: var(--dim); line-height: 1.5; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="logo">🗄️</span>
+    <h1>SQLDev 서버 관리자</h1>
+    <span style="margin-left:auto; display:flex; align-items:center; gap:8px; font-size:13px;">
+      <span id="hdrDot" class="dot off"></span>
+      <span id="hdrText" style="color:var(--dim)">확인 중…</span>
+    </span>
+  </header>
+
+  <main>
+    <div class="left">
+      <div class="card">
+        <div class="status-line">
+          <span id="stDot" class="dot off"></span>
+          <span id="stText">중지됨</span>
+        </div>
+        <div class="kv"><span>프로세스 ID</span><span class="mono" id="kPid">—</span></div>
+        <div class="kv"><span>실행 시간</span><span class="mono" id="kUptime">—</span></div>
+        <div class="kv"><span>포트</span><span class="mono" id="kPort">—</span></div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <label>포트</label>
+          <input id="portInput" type="number" value="3001" min="1" max="65535" />
+        </div>
+        <div class="btns">
+          <button class="primary" id="btnStart">▶  서버 시작</button>
+          <button class="danger"  id="btnStop" disabled>■  서버 종료</button>
+          <button id="btnRestart" disabled>↻  재시작</button>
+        </div>
+      </div>
+
+      <div class="card urls">
+        <div class="kv"><span>접속 주소</span></div>
+        <div style="margin-top:6px"><a id="appLink" href="#" target="_blank">열기 →</a></div>
+        <div class="hint">같은 네트워크의 다른 PC에서는<br><span class="mono">http://&lt;이 PC의 IP&gt;:포트</span> 로 접속합니다.</div>
+      </div>
+
+      <div class="card">
+        <div class="kv"><span>사전 점검</span></div>
+        <ul class="checklist">
+          <li><span id="ckMod" class="dot off"></span> backend 패키지 설치</li>
+          <li><span id="ckBuild" class="dot off"></span> 프론트엔드 빌드</li>
+        </ul>
+        <div class="btns" style="margin-top:10px">
+          <button class="accent" id="btnBuild">🔨  프론트엔드 빌드</button>
+        </div>
+        <div class="hint">소스를 수정했거나 빌드 항목이 빨간불이면 빌드하세요.</div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="log-head">
+        <h2>실시간 로그</h2>
+        <button style="padding:4px 12px; font-size:12px" id="btnClear">지우기</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const logEl = $('log');
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+
+  function fmtUptime(sec) {
+    if (!sec) return '—';
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return (h ? h + 'h ' : '') + (m ? m + 'm ' : '') + s + 's';
+  }
+
+  function appendLog(entry) {
+    const time = new Date(entry.t).toLocaleTimeString('ko-KR', { hour12: false });
+    const cls = entry.stream === 'err' ? 'l-err' : entry.stream === 'sys' ? 'l-sys' : 'l-out';
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    const div = document.createElement('div');
+    div.className = cls;
+    div.innerHTML = '<span class="l-time">' + time + '</span>';
+    div.appendChild(document.createTextNode(entry.line));
+    logEl.appendChild(div);
+    while (logEl.childNodes.length > 800) logEl.removeChild(logEl.firstChild);
+    if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function api(path, method = 'GET', body) {
+    const res = await fetch('/api/' + path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json();
+  }
+
+  function setDot(el, state) { el.className = 'dot ' + state; }
+
+  function render(s) {
+    // 헤더
+    setDot($('hdrDot'), s.running ? 'on' : 'off');
+    $('hdrText').textContent = s.running ? '실행 중' : '중지됨';
+    $('hdrText').style.color = s.running ? 'var(--green)' : 'var(--dim)';
+    // 상태 카드
+    setDot($('stDot'), s.running ? 'on' : (s.lastExit && s.lastExit.code ? 'warn' : 'off'));
+    $('stText').textContent = s.running ? '실행 중' : '중지됨';
+    $('kPid').textContent = s.pid || '—';
+    $('kUptime').textContent = fmtUptime(s.uptimeSec);
+    $('kPort').textContent = s.appPort || '—';
+    // 버튼
+    $('btnStart').disabled = s.running;
+    $('btnStop').disabled = !s.running;
+    $('btnRestart').disabled = !s.running;
+    $('btnBuild').disabled = s.building;
+    $('btnBuild').textContent = s.building ? '⏳  빌드 중…' : '🔨  프론트엔드 빌드';
+    // 링크
+    const link = $('appLink');
+    link.href = 'http://localhost:' + s.appPort + '/';
+    link.textContent = 'http://localhost:' + s.appPort + '/  열기 →';
+    // 점검
+    setDot($('ckMod'), s.hasNodeModules ? 'on' : 'off');
+    setDot($('ckBuild'), s.hasBuild ? 'on' : 'off');
+  }
+
+  async function refresh() {
+    try { render(await api('status')); } catch {}
+  }
+
+  $('btnStart').onclick = async () => {
+    const r = await api('start', 'POST', { port: Number($('portInput').value) });
+    toast(r.message); refresh();
+  };
+  $('btnStop').onclick = async () => { toast((await api('stop', 'POST')).message); refresh(); };
+  $('btnRestart').onclick = async () => {
+    const r = await api('restart', 'POST', { port: Number($('portInput').value) });
+    toast(r.message); setTimeout(refresh, 1600);
+  };
+  $('btnBuild').onclick = async () => { toast((await api('build', 'POST')).message); refresh(); };
+  $('btnClear').onclick = () => { logEl.innerHTML = ''; };
+
+  // 로그: 히스토리 로드 후 SSE 스트림 연결
+  (async () => {
+    try {
+      const h = await api('logs/history');
+      (h.logs || []).forEach(appendLog);
+    } catch {}
+    const es = new EventSource('/api/logs/stream');
+    es.onmessage = e => { try { appendLog(JSON.parse(e.data)); } catch {} };
+  })();
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>
