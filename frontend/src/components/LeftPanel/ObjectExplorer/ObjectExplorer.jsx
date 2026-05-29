@@ -30,7 +30,7 @@ const ObjectItem = memo(function ObjectItem({
   return (
     <div
       style={{ ...STYLE_ITEM, background: isSelected ? 'rgba(79,193,255,0.18)' : undefined }}
-      onClick={(e) => onItemClick(e, name)}
+      onClick={onItemClick ? (e) => onItemClick(e, name) : undefined}
       onDoubleClick={onItemDoubleClick ? (e) => onItemDoubleClick(e, name) : undefined}
       onContextMenu={onContext
         ? (e) => { e.preventDefault(); e.stopPropagation(); onContext(e, name); }
@@ -332,7 +332,7 @@ export default function ObjectExplorer() {
                               />
                             );
                           }
-                          // Non-TABLE: plain click opens tab, no selection
+                          // Non-TABLE: double-click opens tab, single click no-op
                           return (
                             <ObjectItem
                               key={name}
@@ -340,7 +340,8 @@ export default function ObjectExplorer() {
                               type={type}
                               isFiltering={isObjFiltering}
                               objectFilter={isObjFiltering ? objectFilter.trim() : ''}
-                              onItemClick={(e, n) => objectClickHandler(type, n)}
+                              onItemClick={null}
+                              onItemDoubleClick={(e, n) => objectClickHandler(type, n)}
                               isSelected={false}
                             />
                           );
