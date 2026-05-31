@@ -5,6 +5,8 @@ import DataGrid from '../Common/DataGrid.jsx';
 import PlanViewer from './PlanViewer.jsx';
 import AutocompleteDropdown from './AutocompleteDropdown.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
+import { rewriteAliases } from '../../utils/aliasRewriter.js';
+import AliasOptionsModal, { loadAliasOptions } from './AliasOptionsModal.jsx';
 import { renderHighlighted, getTableAtCursor, getCallableAtCursor } from '../../utils/sqlHighlight.js';
 import { openTab } from '../../store/AppContext.jsx';
 
@@ -122,6 +124,8 @@ export default function SqlEditor({ tab }) {
   const [resultMode, setResultMode] = useState('result');
   const [planRaw, setPlanRaw] = useState('');
   const [planAnalysis, setPlanAnalysis] = useState(null);
+  const [aliasOpen, setAliasOpen] = useState(false);
+  const [aliasMsg, setAliasMsg] = useState('');
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
 
@@ -602,6 +606,36 @@ export default function SqlEditor({ tab }) {
           style={{ padding: '3px 10px' }}
           title="선택 영역만 줄 맞추기 (선택 없으면 전체)"
         >≡ 줄 맞추기</button>
+
+        <button
+          className="btn-secondary"
+          title="FROM/JOIN 테이블 alias 를 명명 규칙에 따라 자동 변경 (선택 영역만 또는 전체)"
+          style={{ padding: '3px 10px' }}
+          onClick={() => {
+            const ta = textareaRef.current;
+            const opts = loadAliasOptions();
+            if (ta && ta.selectionStart !== ta.selectionEnd) {
+              const start = ta.selectionStart, end = ta.selectionEnd;
+              const before = sql.slice(0, start), selected = sql.slice(start, end), after = sql.slice(end);
+              const { sql: rewritten, changes } = rewriteAliases(selected, opts);
+              setSql(before + rewritten + after);
+              setAliasMsg(changes.length ? `${changes.length}개 alias 변경` : '변경할 alias 없음');
+            } else {
+              const { sql: rewritten, changes } = rewriteAliases(sql, opts);
+              setSql(rewritten);
+              setAliasMsg(changes.length ? `${changes.length}개 alias 변경` : '변경할 alias 없음');
+            }
+            setTimeout(() => setAliasMsg(''), 2500);
+          }}
+        >🏷 Alias 변경</button>
+        <button
+          className="btn-secondary"
+          title="Alias 명명 규칙 설정"
+          style={{ padding: '3px 8px' }}
+          onClick={() => setAliasOpen(true)}
+        >⚙</button>
+        {aliasMsg && <span style={{ fontSize: 11, color: 'var(--accent)' }}>{aliasMsg}</span>}
+
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
             {state.connections.find(c => c.id === connId)?.name}
@@ -771,6 +805,8 @@ export default function SqlEditor({ tab }) {
           />
         )}
       </div>
+
+      {aliasOpen && <AliasOptionsModal onClose={() => setAliasOpen(false)} />}
     </div>
   );
 }
