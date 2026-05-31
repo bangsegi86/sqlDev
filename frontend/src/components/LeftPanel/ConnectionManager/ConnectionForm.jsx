@@ -89,23 +89,23 @@ export default function ConnectionForm({ onClose, editing = null }) {
           </select>
         </div>
         <Field label={LABELS.name} value={form.name} onChange={v => set('name', v)} />
-        <Field label={LABELS.host} value={form.host} onChange={v => set('host', v)} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
+          <Field label={LABELS.host} value={form.host} onChange={v => set('host', v)} />
+          <Field label="포트" value={form.port} type="number" onChange={v => set('port', v)} />
+        </div>
         <Field label={targetLabel} value={form[targetKey]} onChange={v => set(targetKey, v)} />
         <Field label={LABELS.username} value={form.username} onChange={v => set('username', v)} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <Field label="포트" value={form.port} type="number" onChange={v => set('port', v)} />
-          <div style={{ position: 'relative' }}>
-            <Field
-              label={editing ? '비밀번호 (변경 시만 입력)' : '비밀번호'}
-              value={form.password}
-              type={showPw ? 'text' : 'password'}
-              onChange={v => set('password', v)}
-            />
-            <button
-              onClick={() => setShowPw(s => !s)}
-              style={{ position: 'absolute', right: 6, bottom: 6, background: 'none', color: 'var(--text-secondary)', padding: 2 }}
-            >{showPw ? '🙈' : '👁'}</button>
-          </div>
+        <div style={{ position: 'relative' }}>
+          <Field
+            label={editing ? '비밀번호 (변경 시만 입력)' : '비밀번호'}
+            value={form.password}
+            type={showPw ? 'text' : 'password'}
+            onChange={v => set('password', v)}
+          />
+          <button
+            onClick={() => setShowPw(s => !s)}
+            style={{ position: 'absolute', right: 6, bottom: 6, background: 'none', color: 'var(--text-secondary)', padding: 2 }}
+          >{showPw ? '🙈' : '👁'}</button>
         </div>
 
         {testResult && (

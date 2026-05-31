@@ -156,6 +156,7 @@ export default function SqlEditor({ tab }) {
     function onKeyDown(e) {
       if (e.key === 'F5') { e.preventDefault(); execute(); }
       if (e.key === 'F6') { e.preventDefault(); explainPlan(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); execute(); }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
