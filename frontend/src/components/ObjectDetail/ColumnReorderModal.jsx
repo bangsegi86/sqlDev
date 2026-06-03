@@ -86,22 +86,14 @@ export default function ColumnReorderModal({ connectionId, schema, tableName, co
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9000,
-      background: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{
-        background: 'var(--bg-panel)', border: '1px solid var(--border)',
-        borderRadius: 6, width: 620, maxHeight: '90vh',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="modal-overlay" style={{ zIndex: 9000 }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-box" style={{ width: 620, maxHeight: '90vh' }}>
+        <div className="modal-header">
           <div>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>컬럼 순서 변경</span>
+            <span className="modal-title">컬럼 순서 변경</span>
             <span style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: 11 }}>{schema}.{tableName}</span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+          <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -199,11 +191,13 @@ export default function ColumnReorderModal({ connectionId, schema, tableName, co
           )}
 
           {genError && (
-            <div style={{ padding: '4px 14px 8px', color: 'var(--danger)', fontSize: 11 }}>오류: {genError}</div>
+            <div className="error-pane" style={{ margin: '0 14px 8px', padding: '6px 10px' }}>
+              <span className="error-pane-msg">{genError}</span>
+            </div>
           )}
         </div>
 
-        <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div className="modal-footer" style={{ justifyContent: 'flex-start' }}>
           <button
             className={isChanged ? 'btn-primary' : 'btn-secondary'}
             onClick={generate}

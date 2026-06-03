@@ -68,12 +68,11 @@ export default function CodeDictModal({ onClose }) {
   }
 
   return (
-    <div style={OVERLAY_STYLE}>
-      <div style={MODAL_STYLE}>
-        {/* Header */}
-        <div style={HEADER_STYLE}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>📚 코드 사전 관리</span>
-          <button onClick={onClose} style={CLOSE_BTN_STYLE}>×</button>
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ width: 740, maxHeight: '80vh' }}>
+        <div className="modal-header">
+          <span className="modal-title">📚 코드 사전 관리</span>
+          <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
         {editing ? (
@@ -178,9 +177,8 @@ export default function CodeDictModal({ onClose }) {
           </div>
         )}
 
-        {/* Footer (only in list mode) */}
         {!editing && (
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
             <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
               SQL 에디터에서 우클릭 → 코드값 조회로 사용합니다.
             </span>
@@ -204,25 +202,6 @@ function Field({ label, hint, children }) {
   );
 }
 
-const OVERLAY_STYLE = {
-  position: 'fixed', inset: 0, zIndex: 1000,
-  background: 'rgba(0,0,0,0.6)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const MODAL_STYLE = {
-  background: 'var(--bg-panel)', border: '1px solid var(--border)',
-  borderRadius: 8, width: 740, maxHeight: '80vh',
-  overflow: 'hidden', display: 'flex', flexDirection: 'column',
-};
-const HEADER_STYLE = {
-  padding: '12px 16px', borderBottom: '1px solid var(--border)',
-  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  flexShrink: 0,
-};
-const CLOSE_BTN_STYLE = {
-  background: 'none', border: 'none', color: 'var(--text-dim)',
-  cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 2px',
-};
 const INPUT_STYLE = {
   background: 'var(--bg-primary)', border: '1px solid var(--border)',
   borderRadius: 4, color: 'var(--text-primary)', padding: '5px 8px',

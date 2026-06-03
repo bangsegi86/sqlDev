@@ -24,9 +24,26 @@ export default function RightPanel() {
       <TabBar />
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tabs.length === 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 12, color: 'var(--text-dim)' }}>
-            <div style={{ fontSize: 48 }}>🗄</div>
-            <div style={{ fontSize: 14 }}>연결을 선택하고 오브젝트를 클릭하거나 + 버튼으로 SQL 에디터를 여세요</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: 52, opacity: 0.35 }}>🗄</div>
+            <div style={{ fontSize: 15, color: 'var(--text-secondary)', fontWeight: 500 }}>SQLDev</div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.8, maxWidth: 300 }}>
+              왼쪽 패널에서 연결을 선택하고<br />
+              오브젝트를 더블클릭하거나<br />
+              <span style={{ color: 'var(--accent-bright)' }}>+</span> 버튼으로 SQL 에디터를 여세요
+            </div>
+            <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
+              {[
+                { icon: '⊢', label: 'SQL 에디터' },
+                { icon: '▦', label: '테이블/뷰' },
+                { icon: '{}', label: '프로시저/함수' },
+              ].map(({ icon, label }) => (
+                <div key={label} style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: 11 }}>
+                  <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.6 }}>{icon}</div>
+                  {label}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {tabs.map(tab => {

@@ -3,10 +3,12 @@ import { useApp } from '../../../store/AppContext.jsx';
 import { api } from '../../../api/client.js';
 import ConnectionForm from './ConnectionForm.jsx';
 
+const DB_ICON = { oracle: '🔶', postgresql: '🐘', postgres: '🐘' };
+
 export default function ConnectionItem({ conn }) {
   const { state, dispatch } = useApp();
   const status = state.connectionStatuses[conn.id];
-  const isConnected = status === 'connected';
+  const isConnected  = status === 'connected';
   const isConnecting = status === 'connecting';
   const isActive = state.activeConnectionId === conn.id;
   const [showMenu, setShowMenu] = useState(false);
@@ -18,10 +20,10 @@ export default function ConnectionItem({ conn }) {
       await api.connect(conn.id);
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: { id: conn.id, status: 'connected' } });
       dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: conn.id });
-      dispatch({ type: 'SET_STATUS', payload: `Connected to ${conn.name}` });
+      dispatch({ type: 'SET_STATUS', payload: `${conn.name} 연결됨` });
     } catch (e) {
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: { id: conn.id, status: 'disconnected' } });
-      dispatch({ type: 'SET_STATUS', payload: `Failed: ${e.message}` });
+      dispatch({ type: 'SET_STATUS', payload: `연결 실패: ${e.message}` });
     }
   }
 
@@ -33,7 +35,7 @@ export default function ConnectionItem({ conn }) {
         dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: null });
         dispatch({ type: 'SET_SELECTED_SCHEMA', payload: null });
       }
-      dispatch({ type: 'SET_STATUS', payload: `Disconnected from ${conn.name}` });
+      dispatch({ type: 'SET_STATUS', payload: `${conn.name} 연결 해제됨` });
     } catch (e) { dispatch({ type: 'SET_STATUS', payload: e.message }); }
     setShowMenu(false);
   }
@@ -44,10 +46,10 @@ export default function ConnectionItem({ conn }) {
       await api.reconnect(conn.id);
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: { id: conn.id, status: 'connected' } });
       dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: conn.id });
-      dispatch({ type: 'SET_STATUS', payload: `Reconnected to ${conn.name}` });
+      dispatch({ type: 'SET_STATUS', payload: `${conn.name} 재연결됨` });
     } catch (e) {
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: { id: conn.id, status: 'disconnected' } });
-      dispatch({ type: 'SET_STATUS', payload: `Reconnect failed: ${e.message}` });
+      dispatch({ type: 'SET_STATUS', payload: `재연결 실패: ${e.message}` });
     }
     setShowMenu(false);
   }
@@ -61,44 +63,59 @@ export default function ConnectionItem({ conn }) {
   }
 
   const dotColor = isConnecting ? 'var(--warning)' : isConnected ? 'var(--success)' : '#555';
+  const dbIcon   = DB_ICON[conn.type?.toLowerCase()] || '🗄';
 
   return (
     <>
       <div
         style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
-          cursor: 'pointer', background: isActive ? 'var(--bg-selected)' : 'transparent',
-          borderRadius: 3, position: 'relative',
+          cursor: 'pointer', borderRadius: 3, position: 'relative',
+          background: isActive ? 'var(--bg-selected)' : 'transparent',
+          transition: 'background var(--t)',
         }}
-        onClick={() => {
-          dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: conn.id });
-          if (!isConnected) handleConnect();
-        }}
+        onClick={() => { dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: conn.id }); if (!isConnected) handleConnect(); }}
         onContextMenu={e => { e.preventDefault(); setShowMenu(s => !s); }}
+        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
       >
-        <span style={{ color: dotColor, fontSize: 10, flexShrink: 0 }}>
-          {isConnecting ? '◌' : '●'}
-        </span>
+        {/* Status dot */}
+        <span
+          title={isConnecting ? '연결 중...' : isConnected ? '연결됨' : '연결 안됨'}
+          style={{
+            width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0,
+            boxShadow: isConnected ? '0 0 4px rgba(76,175,80,0.7)' : isConnecting ? '0 0 4px rgba(255,204,0,0.5)' : 'none',
+            transition: 'background 0.3s, box-shadow 0.3s',
+          }}
+        />
+        {/* DB type icon */}
+        <span style={{ fontSize: 11, flexShrink: 0, lineHeight: 1 }}>{dbIcon}</span>
+        {/* Name */}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
           {conn.name}
         </span>
+        {/* Connecting spinner */}
+        {isConnecting && <span className="spinner" style={{ width: 11, height: 11, borderWidth: 2, flexShrink: 0 }} />}
+        {/* Menu toggle */}
         <button
           onClick={e => { e.stopPropagation(); setShowMenu(s => !s); }}
-          style={{ background: 'none', color: 'var(--text-secondary)', padding: '0 3px', fontSize: 14 }}
+          style={{ background: 'none', color: 'var(--text-dim)', padding: '0 3px', fontSize: 16, lineHeight: 1 }}
+          title="메뉴"
         >⋮</button>
 
         {showMenu && (
-          <div style={menuStyle} onMouseLeave={() => setShowMenu(false)}>
+          <div className="ctx-menu" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 200, minWidth: 130 }} onMouseLeave={() => setShowMenu(false)}>
             {isConnected ? (
               <>
-                <MenuItem onClick={handleReconnect}>재연결</MenuItem>
-                <MenuItem onClick={handleDisconnect}>연결 해제</MenuItem>
+                <div className="ctx-menu-item" onClick={handleReconnect}>🔄 재연결</div>
+                <div className="ctx-menu-item" onClick={handleDisconnect}>⏏ 연결 해제</div>
               </>
             ) : (
-              <MenuItem onClick={() => { handleConnect(); setShowMenu(false); }}>연결</MenuItem>
+              <div className="ctx-menu-item" onClick={() => { handleConnect(); setShowMenu(false); }}>▶ 연결</div>
             )}
-            <MenuItem onClick={() => { setEditing(true); setShowMenu(false); }}>편집</MenuItem>
-            <MenuItem danger onClick={handleDelete}>삭제</MenuItem>
+            <div className="ctx-menu-sep" />
+            <div className="ctx-menu-item" onClick={() => { setEditing(true); setShowMenu(false); }}>✏ 편집</div>
+            <div className="ctx-menu-item danger" onClick={handleDelete}>🗑 삭제</div>
           </div>
         )}
       </div>
@@ -106,23 +123,3 @@ export default function ConnectionItem({ conn }) {
     </>
   );
 }
-
-function MenuItem({ onClick, danger, children }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        padding: '6px 12px', cursor: 'pointer', fontSize: 12,
-        color: danger ? 'var(--danger)' : 'var(--text-primary)',
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-    >{children}</div>
-  );
-}
-
-const menuStyle = {
-  position: 'absolute', right: 0, top: '100%', zIndex: 100,
-  background: 'var(--bg-panel)', border: '1px solid var(--border)',
-  borderRadius: 4, minWidth: 120, boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-};

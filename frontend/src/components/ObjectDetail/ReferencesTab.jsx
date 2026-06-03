@@ -24,9 +24,24 @@ export default function ReferencesTab({ connectionId, schema, tableName }) {
       .finally(() => setLoading(false));
   }, [connectionId, schema, tableName]);
 
-  if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading references...</div>;
-  if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>;
-  if (refs.length === 0) return <div style={{ padding: 16, color: 'var(--text-dim)' }}>No foreign key references</div>;
+  if (loading) return (
+    <div className="pane-loading">
+      <span className="spinner" />
+      참조 정보 로딩 중...
+    </div>
+  );
+  if (error) return (
+    <div className="error-pane">
+      <span className="error-pane-msg">{error}</span>
+    </div>
+  );
+  if (refs.length === 0) return (
+    <div className="empty-pane">
+      <span className="empty-pane-icon">🔗</span>
+      <span className="empty-pane-title">외래키 참조 없음</span>
+      <span>이 테이블을 참조하는 외래키(FK)가 없습니다.</span>
+    </div>
+  );
 
   function goToTable(rSchema, rTable) {
     openTab(dispatch, state, {

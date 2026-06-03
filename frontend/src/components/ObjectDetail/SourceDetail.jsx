@@ -256,8 +256,8 @@ export default function SourceDetail({ tab }) {
               {isFormatted && !editMode && <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>포맷 적용됨</span>}
             </div>
 
-            {loading && <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading source...</div>}
-            {error && <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>}
+            {loading && <div className="pane-loading"><span className="spinner" />소스 로딩 중...</div>}
+            {error && <div className="error-pane"><span className="error-pane-msg">{error}</span></div>}
             {!loading && !error && (
               editMode ? (
                 <SyntaxTextarea

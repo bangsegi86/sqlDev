@@ -141,8 +141,11 @@ export default function DataGrid({
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: 20 }}>
-                  No data
+                <td colSpan={columns.length + 1}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '32px 16px', color: 'var(--text-dim)', fontSize: 12 }}>
+                    <span style={{ fontSize: 22, opacity: 0.4 }}>○</span>
+                    데이터 없음
+                  </div>
                 </td>
               </tr>
             )}

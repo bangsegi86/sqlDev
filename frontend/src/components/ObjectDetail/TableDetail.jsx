@@ -7,14 +7,16 @@ import SqlGenTab from './SqlGenTab.jsx';
 import { useApp } from '../../store/AppContext.jsx';
 
 const TABS_TABLE = ['columns', 'data', 'ddl', 'references', 'sqlgen'];
-const TABS_VIEW = ['columns', 'data', 'ddl'];
-const TAB_LABELS = { columns: 'Columns', data: 'Data', ddl: 'DDL', references: 'References', sqlgen: 'SQL 생성' };
+const TABS_VIEW  = ['columns', 'data', 'ddl'];
+const TABS_MATVIEW = ['columns', 'data', 'ddl'];
+const TAB_LABELS = { columns: '컬럼', data: '데이터', ddl: 'DDL', references: '참조', sqlgen: 'SQL 생성' };
+const TYPE_ICON  = { TABLE: '▦', VIEW: '◫', 'MATERIALIZED VIEW': '◫', SYNONYM: '≡' };
 
 export default function TableDetail({ tab }) {
   const { dispatch } = useApp();
   const { schema, objectType, name } = tab.content;
   const [activeTab, setActiveTab] = useState(tab.content.activeTab || 'columns');
-  const tabs = objectType === 'VIEW' ? TABS_VIEW : TABS_TABLE;
+  const tabList = objectType === 'VIEW' || objectType === 'MATERIALIZED VIEW' ? TABS_MATVIEW : TABS_TABLE;
 
   function switchTab(t) {
     setActiveTab(t);
@@ -23,16 +25,22 @@ export default function TableDetail({ tab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '6px 12px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{objectType}</span>
-        <span style={{ margin: '0 6px', color: 'var(--text-dim)' }}>›</span>
-        <span style={{ fontWeight: 600, color: 'var(--accent-bright)' }}>{schema}</span>
-        <span style={{ margin: '0 4px', color: 'var(--text-dim)' }}>.</span>
-        <span style={{ fontWeight: 700 }}>{name}</span>
+      {/* Breadcrumb header */}
+      <div style={{
+        padding: '5px 14px', background: 'var(--bg-header)',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+      }}>
+        <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>{TYPE_ICON[objectType] || '▦'}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 11, letterSpacing: 0.3 }}>{objectType}</span>
+        <span style={{ color: 'var(--border-light)', fontSize: 12 }}>›</span>
+        <span style={{ color: 'var(--accent-bright)', fontSize: 12 }}>{schema}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>.</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{name}</span>
       </div>
 
       <div className="inner-tabs">
-        {tabs.map(t => (
+        {tabList.map(t => (
           <div key={t} className={`inner-tab ${activeTab === t ? 'active' : ''}`} onClick={() => switchTab(t)}>
             {TAB_LABELS[t]}
           </div>

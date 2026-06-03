@@ -29,8 +29,21 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
       .finally(() => setLoading(false));
   }, [connectionId, schema, tableName]);
 
-  if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading columns...</div>;
-  if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>;
+  if (loading) return (
+    <div className="pane-loading">
+      <span className="spinner" />
+      컬럼 정보 로딩 중...
+    </div>
+  );
+  if (error) return (
+    <div className="error-pane">
+      <span className="error-pane-msg">{error}</span>
+      <button className="btn-secondary" style={{ fontSize: 11 }}
+        onClick={() => { setLoading(true); api.getColumns(connectionId, schema, tableName).then(setColumns).catch(e => setError(e.message)).finally(() => setLoading(false)); }}>
+        ↻ 재시도
+      </button>
+    </div>
+  );
 
   function handleCellClick(rowIdx, colHeader) {
     setSelRow(rowIdx);

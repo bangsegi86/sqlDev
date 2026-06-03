@@ -310,7 +310,7 @@ export default function ObjectExplorer() {
 
       {/* Tree */}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        {loading.schemas && <div style={{ padding: 8, color: 'var(--text-secondary)', fontSize: 12 }}>Loading schemas...</div>}
+        {loading.schemas && <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dim)', fontSize: 12 }}><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />스키마 로딩 중...</div>}
         {schemaError && (
           <div style={{ padding: '8px 10px', color: 'var(--danger)', fontSize: 11, wordBreak: 'break-word' }}>⚠ {schemaError}</div>
         )}
@@ -359,7 +359,7 @@ export default function ObjectExplorer() {
                     </div>
                     {showObjects && (
                       <div>
-                        {isLoading && <div style={{ paddingLeft: 40, color: 'var(--text-dim)', fontSize: 11 }}>Loading...</div>}
+                        {isLoading && <div style={{ paddingLeft: 40, color: 'var(--text-dim)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}><span className="spinner" style={{ width: 10, height: 10, borderWidth: 2 }} />로딩 중...</div>}
                         {displayList?.map(name => {
                           const isSelected = sel.schema === schema && sel.type === type && sel.names.has(name);
                           return (
@@ -388,15 +388,10 @@ export default function ObjectExplorer() {
       {/* Right-click context menu */}
       {ctxMenu && (
         <div
+          className="ctx-menu"
           onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000,
-            background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-            minWidth: 210, paddingBlock: 4,
-          }}
+          style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000, minWidth: 210 }}
         >
-          {/* selected count label */}
           {(() => {
             const cur = selRef.current;
             const count = (cur.schema === ctxMenu.schema && cur.type === ctxMenu.type)
@@ -407,28 +402,20 @@ export default function ObjectExplorer() {
               </div>
             ) : null;
           })()}
-
-          {/* 탭으로 열기 */}
-          <CtxMenuItem onClick={() => {
+          <div className="ctx-menu-item" onClick={() => {
             makeObjectClickHandler(ctxMenu.schema)(ctxMenu.type, ctxMenu.name);
             setCtxMenu(null);
-          }}>🔗 탭으로 열기</CtxMenuItem>
-
-          {/* 스크립트 보기 (모든 타입) */}
-          <CtxMenuItem onClick={openScriptForCtx}>
-            📄 스크립트 보기
-          </CtxMenuItem>
-
-          {/* 테이블 명세서는 TABLE에만 */}
+          }}>🔗 탭으로 열기</div>
+          <div className="ctx-menu-item" onClick={openScriptForCtx}>📄 스크립트 보기</div>
           {ctxMenu.type === 'TABLE' && (
-            <CtxMenuItem onClick={openSpecForCtx}>
+            <div className="ctx-menu-item" onClick={openSpecForCtx}>
               📑 테이블 명세서 만들기
               {(() => {
                 const cur = selRef.current;
                 const count = (cur.schema === ctxMenu.schema && cur.type === 'TABLE') ? cur.names.size : 1;
                 return count > 1 ? <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>({count}개)</span> : null;
               })()}
-            </CtxMenuItem>
+            </div>
           )}
         </div>
       )}
@@ -456,19 +443,6 @@ export default function ObjectExplorer() {
   );
 }
 
-// ── Context menu item ──
-function CtxMenuItem({ onClick, children }) {
-  return (
-    <div
-      onClick={onClick}
-      style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-    >
-      {children}
-    </div>
-  );
-}
 
 function FilterInput({ placeholder, value, onChange }) {
   return (

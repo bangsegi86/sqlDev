@@ -71,7 +71,12 @@ export default function DataTab({ connectionId, schema, tableName }) {
         {loading && <span className="spinner" />}
       </div>
 
-      {error && <div style={{ padding: 8, color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
+      {error && (
+        <div className="error-pane">
+          <span className="error-pane-msg">{error}</span>
+          <button className="btn-secondary" style={{ fontSize: 11 }} onClick={load}>↻ 재시도</button>
+        </div>
+      )}
 
       {data && (
         <DataGrid

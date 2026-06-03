@@ -324,17 +324,16 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
   }
 
   if (loading) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 12, color: 'var(--text-secondary)' }}>
-      <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
-      <div>PL/SQL 분석 중...</div>
+    <div className="pane-loading">
+      <span className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
+      PL/SQL 분석 중...
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: 20 }}>
-      <div style={{ color: 'var(--danger)', marginBottom: 8, fontWeight: 600 }}>분석 실패</div>
-      <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{error}</div>
-      <button className="btn-secondary" onClick={analyze} style={{ marginTop: 12 }}>재시도</button>
+    <div className="error-pane" style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 }}>
+      <span className="error-pane-msg">{error}</span>
+      <button className="btn-secondary" onClick={analyze} style={{ marginTop: 4 }}>↻ 재시도</button>
     </div>
   );
 
@@ -533,23 +532,11 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
       {/* Diagram node right-click context menu */}
       {ctxMenu && (
         <div
+          className="ctx-menu"
           onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000,
-            background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-            minWidth: 160, paddingBlock: 4,
-          }}
+          style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000, minWidth: 160 }}
         >
-          <div
-            onClick={() => handleAddDesc(ctxMenu.nodeKey)}
-            style={{
-              padding: '7px 14px', cursor: 'pointer', fontSize: 12,
-              color: 'var(--text-primary)', whiteSpace: 'nowrap',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-          >💬 주석달기</div>
+          <div className="ctx-menu-item" onClick={() => handleAddDesc(ctxMenu.nodeKey)}>💬 주석달기</div>
         </div>
       )}
     </div>

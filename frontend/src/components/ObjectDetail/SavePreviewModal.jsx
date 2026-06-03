@@ -35,36 +35,17 @@ export default function SavePreviewModal({
 
   return (
     <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9500,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
+      className="modal-overlay"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
-        background: 'var(--bg-panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 5,
-        width: 720, maxWidth: '95vw',
-        maxHeight: '85vh',
-        display: 'flex', flexDirection: 'column',
-        boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
-      }}>
+      <div className="modal-box" style={{ width: 720, maxWidth: '95vw', maxHeight: '85vh' }}>
         {/* Title bar */}
-        <div style={{
-          padding: '9px 14px',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'var(--bg-header)', borderRadius: '5px 5px 0 0',
-        }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent-bright)' }}>
-            {name} - 변경사항 저장
+        <div className="modal-header">
+          <span className="modal-title">
+            <span style={{ color: 'var(--accent-bright)' }}>{name}</span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 8 }}>— 변경사항 저장</span>
           </span>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 2px' }}
-          >×</button>
+          <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
         {/* SQL Preview */}
@@ -102,11 +83,8 @@ export default function SavePreviewModal({
           </div>
 
           {/* Warning */}
-          <div style={{
-            marginTop: 8, fontSize: 11, color: '#ffa726',
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            ⚠ Execute를 누르면 데이터베이스에 즉시 적용됩니다. 변경사항을 반드시 확인하세요.
+          <div className="warning-banner" style={{ marginTop: 8 }}>
+            ⚠ 실행 버튼을 누르면 데이터베이스에 즉시 반영됩니다. 반드시 내용을 확인하세요.
           </div>
 
           {/* Result message */}
@@ -123,29 +101,25 @@ export default function SavePreviewModal({
           )}
         </div>
 
-        {/* Bottom buttons — mirroring the image layout */}
-        <div style={{
-          padding: '9px 14px',
-          borderTop: '1px solid var(--border)',
-          display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center',
-        }}>
+        {/* Bottom buttons */}
+        <div className="modal-footer">
           <button
             className="btn-secondary"
             onClick={() => copyPreview(previewSql)}
-            style={{ padding: '4px 16px', fontSize: 12 }}
-          >{previewCopied ? '✓ 복사됨' : 'Copy'}</button>
+            style={{ padding: '4px 14px', fontSize: 12 }}
+          >{previewCopied ? '✓ 복사됨' : '📋 복사'}</button>
           <button
             className="btn-secondary"
             onClick={onClose}
             disabled={executing}
-            style={{ padding: '4px 16px', fontSize: 12 }}
-          >Cancel</button>
+            style={{ padding: '4px 14px', fontSize: 12 }}
+          >취소</button>
           <button
             className="btn-primary"
             onClick={handleExecute}
-            disabled={executing || (result?.success)}
+            disabled={executing || result?.success}
             style={{ padding: '4px 20px', fontSize: 12, minWidth: 90 }}
-          >{executing ? '실행 중...' : 'Execute'}</button>
+          >{executing ? <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginRight: 5 }} />실행 중...</> : '▶ 저장 실행'}</button>
         </div>
       </div>
     </div>

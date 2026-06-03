@@ -19,8 +19,17 @@ export default function DdlTab({ connectionId, schema, name, objectType }) {
       .finally(() => setLoading(false));
   }, [connectionId, schema, name, objectType]);
 
-  if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading DDL...</div>;
-  if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>;
+  if (loading) return (
+    <div className="pane-loading">
+      <span className="spinner" />
+      DDL 로딩 중...
+    </div>
+  );
+  if (error) return (
+    <div className="error-pane">
+      <span className="error-pane-msg">{error}</span>
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

@@ -70,7 +70,7 @@ export default function ConnectionForm({ onClose, editing = null }) {
         await api.connect(conn.id);
         dispatch({ type: 'SET_CONNECTION_STATUS', payload: { id: conn.id, status: 'connected' } });
         dispatch({ type: 'SET_ACTIVE_CONNECTION', payload: conn.id });
-        dispatch({ type: 'SET_STATUS', payload: `Connected to ${conn.name}` });
+        dispatch({ type: 'SET_STATUS', payload: `${conn.name} 연결됨` });
       }
       onClose();
     } catch (e) { setError(e.message); }

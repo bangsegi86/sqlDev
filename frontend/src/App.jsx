@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { AppProvider, useApp } from './store/AppContext.jsx';
+import { AppProvider, useApp, openTab } from './store/AppContext.jsx';
 import LeftPanel from './components/LeftPanel/LeftPanel.jsx';
 import RightPanel from './components/RightPanel/RightPanel.jsx';
 import StatusBar from './components/Common/StatusBar.jsx';
@@ -45,16 +45,25 @@ function Layout() {
 
 function Header() {
   const [showSettings, setShowSettings] = useState(false);
+  const { state, dispatch } = useApp();
   return (
     <>
       <div style={{
         background: 'var(--bg-header)', borderBottom: '1px solid var(--border)',
-        padding: '0 12px', height: 36, display: 'flex', alignItems: 'center', gap: 8,
+        padding: '0 12px', height: 38, display: 'flex', alignItems: 'center', gap: 8,
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: 16 }}>🗄</span>
-        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: 0.5 }}>SQLDev</span>
-        <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>Oracle Database Manager</span>
+        {/* Left panel toggle */}
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_LEFT_PANEL' })}
+          title="패널 접기/펼치기"
+          style={{ background: 'none', color: 'var(--text-secondary)', padding: '3px 6px', fontSize: 15, border: 'none', cursor: 'pointer', lineHeight: 1 }}
+        >{state.leftCollapsed ? '▶' : '◀'}</button>
+        <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0 }} />
+        <span style={{ fontSize: 15 }}>🗄</span>
+        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: 0.4 }}>SQLDev</span>
+        <span style={{ color: 'var(--border-light)', fontSize: 12 }}>|</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>Oracle · PostgreSQL Database Manager</span>
         <button
           onClick={() => setShowSettings(true)}
           style={{ marginLeft: 'auto', background: 'none', color: 'var(--text-secondary)', padding: '4px 8px', fontSize: 16, border: 'none', cursor: 'pointer' }}

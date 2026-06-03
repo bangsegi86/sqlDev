@@ -16,16 +16,17 @@ export default function SequenceDetail({ tab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '6px 12px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>SEQUENCE</span>
-        <span style={{ margin: '0 6px', color: 'var(--text-dim)' }}>›</span>
-        <span style={{ fontWeight: 600, color: 'var(--accent-bright)' }}>{schema}</span>
-        <span style={{ margin: '0 4px', color: 'var(--text-dim)' }}>.</span>
-        <span style={{ fontWeight: 700 }}>{name}</span>
+      <div style={{ padding: '5px 14px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>∞</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>SEQUENCE</span>
+        <span style={{ color: 'var(--border-light)', fontSize: 12 }}>›</span>
+        <span style={{ color: 'var(--accent-bright)', fontSize: 12 }}>{schema}</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>.</span>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{name}</span>
       </div>
       <div style={{ padding: 16, flex: 1, overflow: 'auto' }}>
-        {loading && <div style={{ color: 'var(--text-secondary)' }}>Loading...</div>}
-        {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
+        {loading && <div className="pane-loading"><span className="spinner" />로딩 중...</div>}
+        {error && <div className="error-pane"><span className="error-pane-msg">{error}</span></div>}
         {info && (
           <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>
             <tbody>

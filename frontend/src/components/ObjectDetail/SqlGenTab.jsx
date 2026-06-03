@@ -16,8 +16,8 @@ export default function SqlGenTab({ connectionId, schema, tableName }) {
       .finally(() => setLoading(false));
   }, [connectionId, schema, tableName]);
 
-  if (loading) return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Loading...</div>;
-  if (error) return <div style={{ padding: 16, color: 'var(--danger)' }}>{error}</div>;
+  if (loading) return <div className="pane-loading"><span className="spinner" />로딩 중...</div>;
+  if (error) return <div className="error-pane"><span className="error-pane-msg">{error}</span></div>;
   if (!columns) return null;
 
   const pkCols = columns.filter(c => c.IS_PK === 'Y');

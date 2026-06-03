@@ -19,34 +19,17 @@ function ContextMenu({ x, y, tabId, tabs, onClose, onCloseAll, onCloseToRight, o
     }
   }, [y]);
 
-  const item = (label, onClick, danger) => (
-    <div
-      onClick={onClick}
-      style={{
-        padding: '6px 14px', cursor: 'pointer', fontSize: 12,
-        color: danger ? 'var(--danger)' : 'var(--text-primary)',
-        whiteSpace: 'nowrap',
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-    >{label}</div>
-  );
-
   return (
     <div
       ref={ref}
+      className="ctx-menu"
       onMouseDown={e => e.stopPropagation()}
-      style={{
-        position: 'fixed', top: y, left: x, zIndex: 3000,
-        background: 'var(--bg-panel)', border: '1px solid var(--border)',
-        borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-        minWidth: 180, paddingBlock: 4,
-      }}
+      style={{ position: 'fixed', top: y, left: x, zIndex: 3000, minWidth: 180 }}
     >
-      {item('닫기', () => { onClose(); onDismiss(); })}
-      {!isLast && item('오른쪽 탭 모두 닫기', () => { onCloseToRight(); onDismiss(); })}
-      <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-      {item('모두 닫기', () => { onCloseAll(); onDismiss(); }, true)}
+      <div className="ctx-menu-item" onClick={() => { onClose(); onDismiss(); }}>닫기</div>
+      {!isLast && <div className="ctx-menu-item" onClick={() => { onCloseToRight(); onDismiss(); }}>오른쪽 탭 모두 닫기</div>}
+      <div className="ctx-menu-sep" />
+      <div className="ctx-menu-item danger" onClick={() => { onCloseAll(); onDismiss(); }}>모두 닫기</div>
     </div>
   );
 }
