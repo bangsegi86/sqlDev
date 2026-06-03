@@ -407,7 +407,7 @@ export default function ObjectExplorer() {
 
           {/* 탭으로 열기 */}
           <CtxMenuItem onClick={() => {
-            objectClickHandler(ctxMenu.type, ctxMenu.name);
+            makeObjectClickHandler(ctxMenu.schema)(ctxMenu.type, ctxMenu.name);
             setCtxMenu(null);
           }}>🔗 탭으로 열기</CtxMenuItem>
 

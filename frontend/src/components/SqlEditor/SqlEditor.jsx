@@ -643,7 +643,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체 이동
+          F5/Ctrl+Enter 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체 이동
         </span>
       </div>
 

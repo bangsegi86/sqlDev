@@ -348,9 +348,9 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
   // Strip trailing semicolons / whitespace
   const cleanSql = sql.trim().replace(/;+\s*$/, '');
   const isSelect = /^\s*(SELECT|WITH)\b/i.test(cleanSql);
-  const pg = Math.max(1, Number(page) || 1);
+  const pageNum = Math.max(1, Number(page) || 1);
   const lim = Math.min(2000, Math.max(1, Number(limit) || 200));
-  const offset = (pg - 1) * lim;
+  const offset = (pageNum - 1) * lim;
 
   if (entry.type === 'jdbc') {
     const start = Date.now();
@@ -370,7 +370,7 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
         rowCount: rows.length,
         total: null,        // not counted — use countSQL() on demand
         hasMore,
-        page: pg, limit: lim,
+        page: pageNum, limit: lim,
         executionTime: elapsed,
       };
     }
@@ -412,7 +412,7 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
         rowCount: rows.length,
         total: null,        // not counted — use countSQL() on demand
         hasMore,
-        page: pg, limit: lim,
+        page: pageNum, limit: lim,
         executionTime: elapsed,
       };
     }

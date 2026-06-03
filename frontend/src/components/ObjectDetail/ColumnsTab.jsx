@@ -91,7 +91,7 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {objectType !== 'VIEW' && columns.length > 0 && (
+      {objectType !== 'VIEW' && objectType !== 'MATERIALIZED VIEW' && columns.length > 0 && (
         <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6 }}>
           <button
             className="btn-secondary"

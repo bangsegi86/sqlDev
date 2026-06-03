@@ -120,6 +120,7 @@ export async function getSchemas(id) {
      FROM information_schema.schemata
      WHERE schema_name NOT LIKE 'pg_temp%'
        AND schema_name NOT LIKE 'pg_toast%'
+       AND schema_name NOT IN ('pg_catalog', 'information_schema')
      ORDER BY schema_name`);
   return r.rows.map(row => row.NAME);
 }
@@ -369,6 +370,16 @@ export async function getTableSpec(id, schema, tableName) {
 
 // ── 뷰 DDL ──
 export async function getViewDDL(id, schema, viewName) {
+  // MATERIALIZED VIEW 먼저 확인 (pg_matviews 에 있으면 CREATE MATERIALIZED VIEW 형식 사용)
+  const mvRes = await q(id,
+    `SELECT definition AS "DEF" FROM pg_matviews
+     WHERE schemaname = $1 AND matviewname = $2`,
+    [schema, viewName]);
+  if (mvRes.rows[0]?.DEF) {
+    const def = mvRes.rows[0].DEF.trim().replace(/;?\s*$/, '');
+    return `CREATE MATERIALIZED VIEW ${qIdent(schema)}.${qIdent(viewName)} AS\n${def};`;
+  }
+  // 일반 VIEW
   const r = await q(id,
     `SELECT pg_get_viewdef($1::regclass, true) AS "DDL"`,
     [`${qIdent(schema)}.${qIdent(viewName)}`]);
@@ -460,9 +471,9 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
   const { pool } = entryOf(id);
   const cleanSql = sql.trim().replace(/;+\s*$/, '');
   const isSelect = /^\s*(SELECT|WITH)\b/i.test(cleanSql);
-  const pg = Math.max(1, Number(page) || 1);
+  const pageNum = Math.max(1, Number(page) || 1);
   const lim = Math.min(2000, Math.max(1, Number(limit) || 200));
-  const offset = (pg - 1) * lim;
+  const offset = (pageNum - 1) * lim;
 
   const client = await pool.connect();
   const start = Date.now();
@@ -483,7 +494,7 @@ export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}
         rowCount: rows.length,
         total: null,        // 필요 시 countSQL() 사용
         hasMore,
-        page: pg, limit: lim,
+        page: pageNum, limit: lim,
         executionTime: elapsed,
       };
     }
