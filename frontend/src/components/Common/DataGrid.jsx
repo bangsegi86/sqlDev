@@ -174,7 +174,7 @@ export default function DataGrid({
   );
 }
 
-function DataRow({ row, columns, index, rowOffset, isRowSel, selCol, onCellClick }) {
+const DataRow = React.memo(function DataRow({ row, columns, index, rowOffset, isRowSel, selCol, onCellClick }) {
   const rowBg = isRowSel
     ? 'rgba(79,193,255,0.16)'
     : (index % 2 === 1 ? 'rgba(255,255,255,0.03)' : 'transparent');
@@ -208,7 +208,7 @@ function DataRow({ row, columns, index, rowOffset, isRowSel, selCol, onCellClick
       })}
     </tr>
   );
-}
+});
 
 const TD_ROW_NUM = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', textAlign: 'right', userSelect: 'none' };
 const TD_DATA    = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };

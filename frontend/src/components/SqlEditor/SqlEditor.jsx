@@ -156,15 +156,25 @@ export default function SqlEditor({ tab }) {
     return () => clearTimeout(saveTimerRef.current);
   }, [sql]);
 
+  // Stable refs so the keydown listener never needs to be re-registered.
+  // (Registering on every sql/connId/schema change caused add+remove on each keystroke.)
+  const executeRef = useRef(null);
+  const explainPlanRef = useRef(null);
+  // Keep refs up-to-date after every render
+  useEffect(() => {
+    executeRef.current = execute;
+    explainPlanRef.current = explainPlan;
+  });
+
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === 'F5') { e.preventDefault(); execute(); }
-      if (e.key === 'F6') { e.preventDefault(); explainPlan(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); execute(); }
+      if (e.key === 'F5') { e.preventDefault(); executeRef.current?.(); }
+      if (e.key === 'F6') { e.preventDefault(); explainPlanRef.current?.(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); executeRef.current?.(); }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [sql, connId, schema]);
+  }, []); // 마운트 시 1회만 등록
 
   // Ctrl-held tracking: enable pointer-events on <pre> so CSS :hover fires
   useEffect(() => {

@@ -26,8 +26,10 @@ const STYLE_TYPE    = { display: 'flex', alignItems: 'center', padding: '3px 8px
 const STYLE_ITEM    = { display: 'flex', alignItems: 'center', padding: '3px 8px 3px 40px', cursor: 'pointer', userSelect: 'none' };
 const STYLE_ICON_SM = { color: 'var(--text-secondary)', fontSize: 11, marginRight: 4 };
 
+// schema, type, name 은 모두 primitive → memo 비교가 정확하게 동작한다.
+// onEvent 는 컴포넌트 외부에서 useCallback 으로 안정화되므로 재렌더가 발생하지 않는다.
 const ObjectItem = memo(function ObjectItem({
-  name, type, isFiltering, objectFilter, onItemClick, onItemDoubleClick, isSelected, onContext,
+  name, type, schema, isFiltering, objectFilter, onEvent, isSelected,
 }) {
   const label = isFiltering
     ? highlightMatch(name, objectFilter)
@@ -35,9 +37,9 @@ const ObjectItem = memo(function ObjectItem({
   return (
     <div
       style={{ ...STYLE_ITEM, background: isSelected ? 'rgba(79,193,255,0.18)' : undefined }}
-      onClick={onItemClick ? (e) => onItemClick(e, name) : undefined}
-      onDoubleClick={onItemDoubleClick ? (e) => onItemDoubleClick(e, name) : undefined}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onContext) onContext(e, name); }}
+      onClick={e => onEvent(e, schema, type, name, 'click')}
+      onDoubleClick={e => onEvent(e, schema, type, name, 'dblclick')}
+      onContextMenu={e => onEvent(e, schema, type, name, 'context')}
     >
       <span style={STYLE_ICON_SM}>{TYPE_ICONS[type]}</span>
       {label}
@@ -164,59 +166,62 @@ export default function ObjectExplorer() {
     });
   }, [dispatch, activeConnectionId]);
 
-  // Build click/dblclick/context handlers for a (schema, type, displayList) group
-  function makeHandlers(schema, type, displayList, objectClickHandler) {
-    const handleClick = (e, n) => {
-      if (e.detail > 1) return; // skip 2nd click before dblclick
-      const cur = selRef.current;
-      const sameGroup = cur.schema === schema && cur.type === type;
+  // displayListsRef: 렌더 시 각 (schema::type) 의 현재 displayList 를 저장.
+  // handleItemEvent 안에서 Shift+클릭 범위 선택에 사용한다.
+  const displayListsRef = useRef({});
 
-      if (e.shiftKey) {
-        e.preventDefault();
-        const last = lastSelRef.current;
-        const fromIdx = (last?.schema === schema && last?.type === type && displayList)
-          ? displayList.indexOf(last.name) : -1;
-        const toIdx = displayList ? displayList.indexOf(n) : -1;
-        if (fromIdx !== -1 && toIdx !== -1) {
-          const [s, t] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
-          const range = displayList.slice(s, t + 1);
-          setSel(prev => {
-            const names = (prev.schema === schema && prev.type === type) ? new Set(prev.names) : new Set();
-            range.forEach(rn => names.add(rn));
-            return { schema, type, names };
-          });
-        } else {
-          setSel({ schema, type, names: new Set([n]) });
-          lastSelRef.current = { schema, type, name: n };
-        }
-      } else if (e.ctrlKey || e.metaKey) {
+  // 단일 안정적 이벤트 핸들러 — ObjectItem 의 모든 인터랙션을 처리한다.
+  // deps 가 [dispatch, activeConnectionId, makeObjectClickHandler] 이므로
+  // 연결 전환 없이는 함수 참조가 유지 → ObjectItem memo 가 실제로 작동한다.
+  const handleItemEvent = useCallback((e, schema, type, name, action) => {
+    if (action === 'context') {
+      e.preventDefault(); e.stopPropagation();
+      const cur = selRef.current;
+      if (cur.schema !== schema || cur.type !== type || !cur.names.has(name)) {
+        setSel({ schema, type, names: new Set([name]) });
+        lastSelRef.current = { schema, type, name };
+      }
+      setCtxMenu({ x: e.clientX, y: e.clientY, schema, type, name });
+      return;
+    }
+    if (action === 'dblclick') {
+      makeObjectClickHandler(schema)(type, name);
+      return;
+    }
+    // click
+    if (e.detail > 1) return;
+    const displayList = displayListsRef.current[`${schema}::${type}`];
+    if (e.shiftKey) {
+      e.preventDefault();
+      const last = lastSelRef.current;
+      const fromIdx = (last?.schema === schema && last?.type === type && displayList)
+        ? displayList.indexOf(last.name) : -1;
+      const toIdx = displayList ? displayList.indexOf(name) : -1;
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const [lo, hi] = fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+        const range = displayList.slice(lo, hi + 1);
         setSel(prev => {
           const names = (prev.schema === schema && prev.type === type) ? new Set(prev.names) : new Set();
-          if (names.has(n)) names.delete(n); else names.add(n);
-          if (names.size === 0) return { schema: null, type: null, names: new Set() };
+          range.forEach(rn => names.add(rn));
           return { schema, type, names };
         });
-        lastSelRef.current = { schema, type, name: n };
       } else {
-        setSel({ schema, type, names: new Set([n]) });
-        lastSelRef.current = { schema, type, name: n };
+        setSel({ schema, type, names: new Set([name]) });
+        lastSelRef.current = { schema, type, name };
       }
-    };
-
-    const handleDblClick = (_e, n) => objectClickHandler(type, n);
-
-    const handleContext = (e, n) => {
-      const cur = selRef.current;
-      // If right-clicking outside current selection, select only this item
-      if (cur.schema !== schema || cur.type !== type || !cur.names.has(n)) {
-        setSel({ schema, type, names: new Set([n]) });
-        lastSelRef.current = { schema, type, name: n };
-      }
-      setCtxMenu({ x: e.clientX, y: e.clientY, schema, type, name: n });
-    };
-
-    return { handleClick, handleDblClick, handleContext };
-  }
+    } else if (e.ctrlKey || e.metaKey) {
+      setSel(prev => {
+        const names = (prev.schema === schema && prev.type === type) ? new Set(prev.names) : new Set();
+        if (names.has(name)) names.delete(name); else names.add(name);
+        if (names.size === 0) return { schema: null, type: null, names: new Set() };
+        return { schema, type, names };
+      });
+      lastSelRef.current = { schema, type, name };
+    } else {
+      setSel({ schema, type, names: new Set([name]) });
+      lastSelRef.current = { schema, type, name };
+    }
+  }, [dispatch, activeConnectionId, makeObjectClickHandler]);
 
   // ── Derived selection info ──
   const selCount = sel.names.size;
@@ -315,7 +320,6 @@ export default function ObjectExplorer() {
         {filteredSchemas.map(schema => {
           const schemaNodeId = `${activeConnectionId}-${schema}`;
           const schemaExpanded = expandedNodes.has(schemaNodeId);
-          const objectClickHandler = makeObjectClickHandler(schema);
           return (
             <div key={schema}>
               <div style={STYLE_SCHEMA} onClick={() => handleSchemaClick(schema)}>
@@ -338,8 +342,8 @@ export default function ObjectExplorer() {
                 const showObjects = isObjFiltering ? !filterCollapsed.has(typeNodeId) : typeExpanded;
                 const displayList = isObjFiltering ? filteredObjList : objList;
 
-                const { handleClick, handleDblClick, handleContext } =
-                  makeHandlers(schema, type, displayList, objectClickHandler);
+                // Shift+클릭 범위 선택을 위해 현재 displayList 를 ref 에 저장
+                displayListsRef.current[`${schema}::${type}`] = displayList;
 
                 return (
                   <div key={type}>
@@ -363,12 +367,11 @@ export default function ObjectExplorer() {
                               key={name}
                               name={name}
                               type={type}
+                              schema={schema}
                               isFiltering={isObjFiltering}
                               objectFilter={isObjFiltering ? objectFilter.trim() : ''}
-                              onItemClick={handleClick}
-                              onItemDoubleClick={handleDblClick}
+                              onEvent={handleItemEvent}
                               isSelected={isSelected}
-                              onContext={handleContext}
                             />
                           );
                         })}
