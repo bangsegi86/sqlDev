@@ -9,6 +9,8 @@ import { rewriteAliases } from '../../utils/aliasRewriter.js';
 import AliasOptionsModal, { loadAliasOptions } from './AliasOptionsModal.jsx';
 import { renderHighlighted, getTableAtCursor, getCallableAtCursor } from '../../utils/sqlHighlight.js';
 import { openTab } from '../../store/AppContext.jsx';
+import CodeDictModal, { loadCodeDefs } from './CodeDictModal.jsx';
+import CodeLookupPopup from './CodeLookupPopup.jsx';
 
 const LIMIT = 200;
 // Object types to include in autocomplete
@@ -55,6 +57,16 @@ function getWordAtCursor(text, pos) {
   while (start > 0 && /[\w$]/.test(text[start - 1])) start--;
   const word = text.slice(start, pos);
   return { word, wordStart: start };
+}
+
+// Check if a code-def columnPattern matches a word (case-insensitive, * wildcard)
+function patternMatches(pattern, word) {
+  const p = pattern.toUpperCase();
+  const w = word.toUpperCase();
+  if (p === w) return true;
+  if (p.startsWith('*') && p.length > 1) return w.endsWith(p.slice(1));
+  if (p.endsWith('*') && p.length > 1) return w.startsWith(p.slice(0, -1));
+  return false;
 }
 
 // Get the full identifier word that charPos falls inside (for Ctrl+click lookup)
@@ -128,6 +140,12 @@ export default function SqlEditor({ tab }) {
   const [aliasMsg, setAliasMsg] = useState('');
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
+
+  // Code lookup feature
+  const [codeDefs, setCodeDefs] = useState(loadCodeDefs);
+  const [sqlCtxMenu, setSqlCtxMenu] = useState(null); // { x, y, word, matchingDefs }
+  const [codeLookup, setCodeLookup] = useState(null); // { def, x, y }
+  const [codeDictOpen, setCodeDictOpen] = useState(false);
 
   // Autocomplete state
   const [acOpen, setAcOpen] = useState(false);
@@ -226,6 +244,17 @@ export default function SqlEditor({ tab }) {
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [acOpen]);
+
+  // Close SQL context menu on outside click or Escape
+  useEffect(() => {
+    if (!sqlCtxMenu) return;
+    function onDown(e) {
+      // click outside handled by the overlay itself; Escape closes it
+      if (e.type === 'keydown' && e.key === 'Escape') setSqlCtxMenu(null);
+    }
+    document.addEventListener('keydown', onDown);
+    return () => document.removeEventListener('keydown', onDown);
+  }, [sqlCtxMenu]);
 
   // Load object list for current schema (cached per schema)
   const loadAcItems = useCallback(async () => {
@@ -379,6 +408,22 @@ export default function SqlEditor({ tab }) {
     const charPos = getCharPosFromPoint(e.clientX, e.clientY);
     if (charPos < 0) return;
     handleObjectNavigation(charPos);
+  }
+
+  function handleContextMenu(e) {
+    // Only override when code defs are registered
+    const defs = loadCodeDefs();
+    if (defs.length === 0) return;
+    e.preventDefault();
+    setSqlCtxMenu(null);
+    setCodeLookup(null);
+    // selectionStart is where the browser moved the cursor to on right-click
+    const pos = e.target.selectionStart ?? 0;
+    const word = getRawWordAtPos(sql, pos);
+    const matchingDefs = word
+      ? defs.filter(def => def.patterns.some(p => patternMatches(p, word)))
+      : [];
+    setSqlCtxMenu({ x: e.clientX, y: e.clientY, word, matchingDefs });
   }
 
   function handleKeyDown(e) {
@@ -646,6 +691,14 @@ export default function SqlEditor({ tab }) {
         >⚙</button>
         {aliasMsg && <span style={{ fontSize: 11, color: 'var(--accent)' }}>{aliasMsg}</span>}
 
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <button
+          className="btn-secondary"
+          title="코드 사전 관리 — 컬럼별 코드값 조회 쿼리를 등록합니다"
+          style={{ padding: '3px 10px' }}
+          onClick={() => setCodeDictOpen(true)}
+        >📚 코드 사전</button>
+
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
             {state.connections.find(c => c.id === connId)?.name}
@@ -653,7 +706,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5/Ctrl+Enter 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체 이동
+          F5/Ctrl+Enter 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체이동 · 우클릭 코드조회
         </span>
       </div>
 
@@ -691,6 +744,7 @@ export default function SqlEditor({ tab }) {
           onKeyDown={e => { handleKeyDown(e); syncScroll(); }}
           onKeyUp={syncScroll}
           onBlur={() => { setTimeout(closeAutocomplete, 150); }}
+          onContextMenu={handleContextMenu}
           onClick={e => {
             syncScroll();
             if (acOpen) closeAutocomplete();
@@ -817,6 +871,135 @@ export default function SqlEditor({ tab }) {
       </div>
 
       {aliasOpen && <AliasOptionsModal onClose={() => setAliasOpen(false)} />}
+
+      {/* SQL right-click context menu */}
+      {sqlCtxMenu && (
+        <SqlCtxMenu
+          x={sqlCtxMenu.x}
+          y={sqlCtxMenu.y}
+          word={sqlCtxMenu.word}
+          matchingDefs={sqlCtxMenu.matchingDefs}
+          onLookup={def => {
+            setSqlCtxMenu(null);
+            setCodeLookup({ def, x: sqlCtxMenu.x, y: sqlCtxMenu.y });
+          }}
+          onManage={() => { setSqlCtxMenu(null); setCodeDictOpen(true); }}
+          onClose={() => setSqlCtxMenu(null)}
+        />
+      )}
+
+      {/* Code value lookup popup */}
+      {codeLookup && (
+        <CodeLookupPopup
+          def={codeLookup.def}
+          connId={connId}
+          schema={schema}
+          x={codeLookup.x}
+          y={codeLookup.y}
+          onClose={() => setCodeLookup(null)}
+        />
+      )}
+
+      {/* Code dictionary management modal */}
+      {codeDictOpen && (
+        <CodeDictModal
+          onClose={() => {
+            setCodeDictOpen(false);
+            setCodeDefs(loadCodeDefs()); // refresh after edits
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Inline SQL context menu component ──────────────────────────
+function SqlCtxMenu({ x, y, word, matchingDefs, onLookup, onManage, onClose }) {
+  const menuRef = useRef(null);
+
+  // Adjust position to avoid viewport overflow
+  const [pos, setPos] = useState({ left: x, top: y });
+  useEffect(() => {
+    const el = menuRef.current;
+    if (!el) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const { width: mw, height: mh } = el.getBoundingClientRect();
+    setPos({
+      left: x + mw > vw ? Math.max(4, vw - mw - 4) : x,
+      top:  y + mh > vh ? Math.max(4, y - mh)       : y,
+    });
+  }, [x, y]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      style={{
+        position: 'fixed', zIndex: 1500,
+        left: pos.left, top: pos.top,
+        background: 'var(--bg-panel)',
+        border: '1px solid var(--border)',
+        borderRadius: 5,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+        minWidth: 200, fontSize: 12,
+        padding: '4px 0',
+      }}
+    >
+      {word && (
+        <div style={{ padding: '3px 12px 6px', color: 'var(--text-dim)', fontSize: 10, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+          <b style={{ color: 'var(--text-secondary)' }}>{word}</b> 에 대한 코드 조회
+        </div>
+      )}
+
+      {matchingDefs.length > 0 ? (
+        matchingDefs.map(def => (
+          <MenuItem
+            key={def.id}
+            icon="📖"
+            label={def.label}
+            desc={def.description}
+            onClick={() => onLookup(def)}
+          />
+        ))
+      ) : (
+        <div style={{ padding: '4px 14px', color: 'var(--text-dim)', fontSize: 11 }}>
+          {word ? `'${word}' 에 일치하는 코드 정의 없음` : '단어를 클릭 후 우클릭하세요'}
+        </div>
+      )}
+
+      <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+      <MenuItem icon="📚" label="코드 사전 관리" onClick={onManage} />
+    </div>
+  );
+}
+
+function MenuItem({ icon, label, desc, onClick }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        padding: '5px 14px', cursor: 'pointer',
+        background: hovered ? 'var(--bg-hover)' : 'transparent',
+        display: 'flex', alignItems: 'center', gap: 7,
+      }}
+    >
+      <span>{icon}</span>
+      <span style={{ flex: 1 }}>
+        {label}
+        {desc && <span style={{ color: 'var(--text-dim)', fontSize: 10, marginLeft: 6 }}>{desc}</span>}
+      </span>
     </div>
   );
 }
