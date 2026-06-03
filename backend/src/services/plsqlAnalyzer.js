@@ -74,7 +74,6 @@ function extractDescComments(src) {
     if (m) {
       const text = m[1].trim();
       byLine.set(i + 1, text);
-      console.log(`[desc] L${i + 1}: "${text}"`);
     }
   }
   return byLine;
@@ -91,7 +90,6 @@ function attachDescs(steps, lineStarts, descByLine) {
       for (let offset = 1; offset <= 3; offset++) {
         const desc = descByLine.get(ln - offset);
         if (desc != null) {
-          console.log(`[attach] step type=${step.type} at L${ln} ← desc from L${ln - offset}: "${desc}"`);
           step.desc = desc;
           break;
         }
@@ -107,6 +105,52 @@ function attachDescs(steps, lineStarts, descByLine) {
 function descPrefix(step) {
   if (!step?.desc) return '';
   return `💬 ${esc(step.desc)}\\n─────────────\\n`;
+}
+
+// 조건식을 초등학생도 이해하기 쉬운 표현으로 변환한다.
+// (비교 연산자 → 기호, IS NULL/AND/OR → 한국어, 값은 그대로 유지)
+function humanizeCond(cond) {
+  if (!cond) return '';
+  let s = String(cond);
+  // NULL 검사 (명사형 — "맞나요?"와 자연스럽게 연결)
+  s = s.replace(/\bIS\s+NOT\s+NULL\b/gi, '에 값이 있음');
+  s = s.replace(/\bIS\s+NULL\b/gi, '이 비어 있음');
+  // BETWEEN / IN / LIKE
+  s = s.replace(/\bNOT\s+IN\b/gi, '에 없음:');
+  s = s.replace(/\bIN\b/gi, '중 하나:');
+  s = s.replace(/\bNOT\s+LIKE\b/gi, '와 안 맞음:');
+  s = s.replace(/\bLIKE\b/gi, '와 비슷:');
+  s = s.replace(/\bBETWEEN\b/gi, '범위:');
+  // 비교 연산자 → 누구나 아는 기호
+  s = s.replace(/<>|!=/g, ' ≠ ');
+  s = s.replace(/>=/g, ' ≥ ');
+  s = s.replace(/<=/g, ' ≤ ');
+  s = s.replace(/(^|[^<>!=:])=(?!=)/g, '$1 = ');
+  // 논리 연산자 → 한국어 접속어
+  s = s.replace(/\bAND\b/gi, '그리고');
+  s = s.replace(/\bOR\b/gi, '또는');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// FOR 루프 헤더를 자연어로 변환한다.
+//   i IN 1 .. 10           → i = 1 부터 10 까지
+//   rec IN (SELECT ...)    → 조회 결과의 각 행 (rec)
+//   rec IN c_cursor        → c_cursor 의 각 행 (rec)
+function humanizeForHeader(hdr) {
+  if (!hdr) return '';
+  const h = String(hdr).trim();
+  const range = /^(\w+)\s+IN\s+(REVERSE\s+)?(.+?)\s*\.\.\s*(.+)$/i.exec(h);
+  if (range) {
+    const rev = !!range[2];
+    return `${range[1]} = ${range[3].trim()} 부터 ${range[4].trim()} 까지${rev ? ' (역순)' : ''}`;
+  }
+  const each = /^(\w+)\s+IN\s+(.+)$/i.exec(h);
+  if (each) {
+    const src = each[2].trim();
+    if (/^\(/.test(src)) return `조회 결과의 각 행 (${each[1]})`;
+    return `${src} 의 각 행 (${each[1]})`;
+  }
+  return h;
 }
 
 // ── Statement-detail extractors (for richer node labels) ──────────────────────
@@ -157,7 +201,11 @@ function tokenize(src) {
         else if (src[j] === "'") { j++; break; }
         else j++;
       }
-      toks.push({ t: 'STR', v: "'...'", pos: i }); i = j; continue;
+      // 실제 문자열 값을 보존한다 (흐름도에서 'ACTIVE' 같은 값이 보이도록).
+      // 너무 길면 가독성을 위해 잘라낸다.
+      const raw = src.slice(i, j);
+      const v = raw.length > 42 ? raw.slice(0, 40) + "…'" : raw;
+      toks.push({ t: 'STR', v, pos: i }); i = j; continue;
     }
     if (/[A-Za-z_$#]/.test(src[i])) {
       let j = i;
@@ -200,8 +248,7 @@ function collectUntilSemi(toks, i) {
     if (toks[i].t === 'SEMI' && depth === 0) break;
     if (toks[i].t === 'LP') { depth++; parts.push('('); i++; continue; }
     if (toks[i].t === 'RP') { depth--; parts.push(')'); i++; continue; }
-    if (toks[i].t === 'STR') { parts.push("'…'"); i++; continue; }
-    parts.push(toks[i].v); i++;
+    parts.push(toks[i].v); i++;   // STR 토큰은 실제 값을 그대로 사용
   }
   return { text: parts.join(' ').replace(/\s+/g,' ').trim(), endIdx: i };
 }
@@ -214,8 +261,7 @@ function collectCondition(toks, i, ...stopWords) {
     if (depth === 0 && toks[i].t === 'W' && stopWords.includes(toks[i].u)) break;
     if (toks[i].t === 'LP') { depth++; parts.push('('); i++; continue; }
     if (toks[i].t === 'RP') { depth--; parts.push(')'); i++; continue; }
-    if (toks[i].t === 'STR') { parts.push("'…'"); i++; continue; }
-    parts.push(toks[i].v); i++;
+    parts.push(toks[i].v); i++;   // STR 토큰은 실제 값을 그대로 사용
   }
   return { text: parts.join(' ').replace(/\s+/g,' ').trim(), endIdx: i };
 }
@@ -593,9 +639,9 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
       return { endIds: [id] };
     }
     case 'if': return generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap);
-    case 'for_loop':   return generateLoopNode(lines, step, prevIds, edgeLabel, `🔄 FOR ${esc(step.header)}`, nodeCodeMap);
-    case 'while_loop': return generateLoopNode(lines, step, prevIds, edgeLabel, `🔄 WHILE ${esc(step.condition)}`, nodeCodeMap);
-    case 'loop':       return generateLoopNode(lines, step, prevIds, edgeLabel, '🔄 LOOP', nodeCodeMap);
+    case 'for_loop':   return generateLoopNode(lines, step, prevIds, edgeLabel, `🔁 반복: ${esc(humanizeForHeader(step.header))}`, nodeCodeMap);
+    case 'while_loop': return generateLoopNode(lines, step, prevIds, edgeLabel, `🔁 ${esc(humanizeCond(step.condition))}\\n인 동안 반복`, nodeCodeMap);
+    case 'loop':       return generateLoopNode(lines, step, prevIds, edgeLabel, '🔁 반복 (탈출 전까지)', nodeCodeMap);
     default: return { endIds: prevIds };
   }
 }
@@ -603,9 +649,10 @@ function generateNode(lines, step, prevIds, edgeLabel = null, nodeCodeMap = {}) 
 function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
   const decId = nid('IF');
   const AT = arrowTo(edgeLabel);
-  const condLabel = step.condition ? esc(step.condition) : '조건';
+  // 조건을 사람이 읽기 쉬운 형태로 변환해 마름모 안에 질문처럼 표시한다.
+  const condLabel = step.condition ? esc(humanizeCond(step.condition)) : '조건';
   nodeCodeMap[decId] = step.code || `IF ${step.condition || ''}`; regPos(decId, step);
-  lines.push(`  ${decId}{"${descPrefix(step)}IF\\n${condLabel}"}`);
+  lines.push(`  ${decId}{"${descPrefix(step)}❓ ${condLabel}\\n맞나요?"}`);
   lines.push(`  class ${decId} decision`);
   prevIds.forEach(p => lines.push(`  ${p} ${AT} ${decId}`));
   lines.push('');
@@ -615,7 +662,12 @@ function generateIfNode(lines, step, prevIds, edgeLabel, nodeCodeMap = {}) {
 
   for (let bi = 0; bi < step.branches.length; bi++) {
     const br = step.branches[bi];
-    const lbl = bi === 0 ? '예' : (br.condition === null ? '아니오' : esc(br.label));
+    // 분기 화살표 라벨: 첫 분기는 "✅ 예", ELSE 는 "❌ 아니오",
+    // ELSIF 는 "아니고, {조건}이면" 형태로 실제 조건을 보여준다.
+    let lbl;
+    if (bi === 0) lbl = '✅ 예';
+    else if (br.condition === null) lbl = '❌ 아니오';
+    else lbl = esc(`아니고 → ${humanizeCond(br.condition)}`);
     if (!br.steps.length) { branchEnds.push(decId); continue; }
     const { endIds } = generateFlow(lines, br.steps, [decId], nodeCodeMap, lbl);
     branchEnds.push(...endIds);

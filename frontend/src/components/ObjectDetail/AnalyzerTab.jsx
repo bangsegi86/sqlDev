@@ -10,7 +10,7 @@ import { formatSQL } from '../../utils/formatSQL.js';
 const NODE_TYPE_LABEL = {
   SEL: '📖 SELECT', DML: '✏️ DML', CALL: '🔧 프로시저 호출', SYS: '📦 시스템 호출',
   DYN: '⚡ 동적 SQL', CMT: '💾 트랜잭션', RBK: '↩ ROLLBACK', RET: '↪ RETURN',
-  RAISE: '⚠️ RAISE', CUR: '커서 연산', IF: '⬦ IF 조건', LOOP: '🔄 반복문',
+  RAISE: '⚠️ RAISE', CUR: '커서 연산', IF: '❓ 조건 분기', LOOP: '🔁 반복문',
 };
 
 function getNodeTypeLabel(key) {
