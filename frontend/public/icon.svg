@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#1a1a1e"/>
+
+  <!-- DB cylinder top -->
+  <ellipse cx="256" cy="148" rx="148" ry="46" fill="#0078d4"/>
+
+  <!-- DB cylinder body -->
+  <rect x="108" y="148" width="296" height="164" fill="#005a9e"/>
+
+  <!-- DB cylinder mid-line highlight -->
+  <ellipse cx="256" cy="230" rx="148" ry="46" fill="#0069bf"/>
+
+  <!-- DB cylinder bottom -->
+  <ellipse cx="256" cy="312" rx="148" ry="46" fill="#0078d4"/>
+
+  <!-- Shine on top -->
+  <ellipse cx="230" cy="138" rx="80" ry="18" fill="rgba(255,255,255,0.12)"/>
+
+  <!-- "Dev" label -->
+  <text x="256" y="438"
+    font-family="'Segoe UI', Consolas, monospace"
+    font-size="92"
+    font-weight="700"
+    fill="#e8e8e8"
+    text-anchor="middle"
+    letter-spacing="-2">Dev</text>
+</svg>
