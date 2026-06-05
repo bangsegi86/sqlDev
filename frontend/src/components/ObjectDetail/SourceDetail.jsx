@@ -49,6 +49,10 @@ export default function SourceDetail({ tab }) {
 
   // Word highlight on double-click
   const [hlWord, setHlWord] = useState('');
+  const clearHlTimerRef = useRef(null);
+
+  // Active line highlight
+  const [activeLine, setActiveLine] = useState(null);
 
   // Ctrl+click navigation state
   const [acItems, setAcItems] = useState([]);
@@ -121,7 +125,7 @@ export default function SourceDetail({ tab }) {
   }, [acItems, loadAcItems]);
 
   function loadSource() {
-    setLoading(true); setError(''); setCompileResult(null);
+    setLoading(true); setError(''); setCompileResult(null); setActiveLine(null); setHlWord('');
     api.getSource(connId, schema, objectType, name)
       .then(r => { setSource(r.source); setEditedSource(r.source); })
       .catch(e => setError(e.message))
@@ -289,7 +293,7 @@ export default function SourceDetail({ tab }) {
             {!loading && !error && (() => {
               const hlUp = hlWord ? hlWord.toUpperCase() : null;
               const wordRe = /^[\w$#]+$/;
-              const hlBg = { background: 'rgba(255,200,50,0.32)', borderRadius: 2 };
+              const hlBg = { background: 'rgba(255,235,30,0.55)', borderRadius: 2 };
               const isHl = (val) => hlUp && wordRe.test(val) && val.toUpperCase() === hlUp;
 
               function renderTok(tok, j, lineToks) {
@@ -338,7 +342,14 @@ export default function SourceDetail({ tab }) {
                     ref={preRef}
                     className="sql-source-pre"
                     onContextMenu={openContextMenu}
+                    onMouseDown={() => {
+                      clearTimeout(clearHlTimerRef.current);
+                      if (hlWord) {
+                        clearHlTimerRef.current = setTimeout(() => setHlWord(''), 300);
+                      }
+                    }}
                     onDoubleClick={() => {
+                      clearTimeout(clearHlTimerRef.current);
                       const word = window.getSelection()?.toString().trim() ?? '';
                       if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
                       else setHlWord('');
@@ -348,9 +359,16 @@ export default function SourceDetail({ tab }) {
                     style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
                   >
                     {(highlightedLines || []).map((lineToks, i) => (
-                      <div key={i} style={{ display: 'flex' }}>
-                        <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
-                        <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
+                      <div
+                        key={i}
+                        onClick={() => setActiveLine(i)}
+                        style={{
+                          display: 'flex',
+                          background: activeLine === i ? 'rgba(255,255,255,0.07)' : 'transparent',
+                        }}
+                      >
+                        <span style={{ width: 44, minWidth: 44, color: activeLine === i ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
+                        <span style={{ whiteSpace: 'pre', paddingLeft: 4, flex: 1 }}>
                           {lineToks.map((tok, j) => renderTok(tok, j, lineToks))}
                         </span>
                       </div>

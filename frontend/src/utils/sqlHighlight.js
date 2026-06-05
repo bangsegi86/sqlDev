@@ -267,7 +267,7 @@ export function renderHighlighted(src, navigableNames, hlWord) {
         key: i,
         style: {
           ...(tok.color ? { color: tok.color } : {}),
-          ...(isHl ? { background: 'rgba(255,200,50,0.32)', borderRadius: 2 } : {}),
+          ...(isHl ? { background: 'rgba(255,235,30,0.55)', borderRadius: 2 } : {}),
         },
         className,
       }, tok.value);

@@ -265,6 +265,7 @@ export default function SqlEditor({ tab }) {
   // Word highlight on double-click
   const [hlWord, setHlWord] = useState('');
   const hlWordRef = useRef('');
+  const clearHlTimerRef = useRef(null);
 
   // highlightedSql is updated synchronously in handleChange (same render as setSql)
   // to eliminate the visible lag from a separate debounced state update.
@@ -737,6 +738,16 @@ export default function SqlEditor({ tab }) {
           onKeyUp={syncScroll}
           onBlur={() => { setTimeout(closeAutocomplete, 150); }}
           onContextMenu={handleContextMenu}
+          onMouseDown={() => {
+            // Schedule clear — cancelled if dblclick fires within 300ms
+            clearTimeout(clearHlTimerRef.current);
+            if (hlWordRef.current) {
+              clearHlTimerRef.current = setTimeout(() => {
+                hlWordRef.current = '';
+                setHlWord('');
+              }, 300);
+            }
+          }}
           onClick={e => {
             syncScroll();
             if (acOpen) closeAutocomplete();
@@ -746,6 +757,7 @@ export default function SqlEditor({ tab }) {
             }
           }}
           onDoubleClick={e => {
+            clearTimeout(clearHlTimerRef.current);
             const ta = e.target;
             const word = sql.slice(ta.selectionStart, ta.selectionEnd).trim();
             if (word && /^[\w$#]+$/.test(word)) {
