@@ -287,17 +287,22 @@ export default function SqlEditor({ tab }) {
     [acItems]
   );
 
-  // Debounce highlight recomputation: expensive O(n) tokenization runs 80ms
-  // after the last keystroke so the textarea stays responsive while typing
+  // highlightedSql is updated synchronously in handleChange (same render as setSql)
+  // to eliminate the visible lag from a separate debounced state update.
+  // navigableNames changes (object list load) still use a debounce since they
+  // arrive outside of user input and don't need to be instant.
   const [highlightedSql, setHighlightedSql] = useState(() => renderHighlighted(sql, navigableNames));
-  const hlTimerRef = useRef(null);
+  const hlNavTimerRef = useRef(null);
   useEffect(() => {
-    clearTimeout(hlTimerRef.current);
-    hlTimerRef.current = setTimeout(() => {
+    clearTimeout(hlNavTimerRef.current);
+    hlNavTimerRef.current = setTimeout(() => {
       setHighlightedSql(renderHighlighted(sql, navigableNames));
     }, 80);
-    return () => clearTimeout(hlTimerRef.current);
-  }, [sql, navigableNames]);
+    return () => clearTimeout(hlNavTimerRef.current);
+  // Only re-run when navigableNames changes, NOT on sql change —
+  // sql-driven updates happen synchronously in handleChange.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigableNames]);
 
   function syncScroll() {
     if (preRef.current && textareaRef.current) {
@@ -448,7 +453,9 @@ export default function SqlEditor({ tab }) {
       e.preventDefault();
       const start = e.target.selectionStart;
       const end = e.target.selectionEnd;
-      setSql(sql.slice(0, start) + '  ' + sql.slice(end));
+      const newSql = sql.slice(0, start) + '  ' + sql.slice(end);
+      setSql(newSql);
+      setHighlightedSql(renderHighlighted(newSql, navigableNames));
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
@@ -465,6 +472,10 @@ export default function SqlEditor({ tab }) {
   function handleChange(e) {
     const newSql = e.target.value;
     setSql(newSql);
+    // Update highlight in the same render cycle as setSql so there is no
+    // visible delay between typing and characters appearing in the editor.
+    // React 18 batches both state updates into one DOM commit.
+    setHighlightedSql(renderHighlighted(newSql, navigableNames));
 
     // If autocomplete is open, update filter as user types
     if (acOpen) {
