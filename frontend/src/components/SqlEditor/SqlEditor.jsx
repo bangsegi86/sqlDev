@@ -65,6 +65,25 @@ function getWordAtCursor(text, pos) {
 // Reusable canvas for text width measurement (avoids DOM mirror div bugs)
 const _measureCanvas = document.createElement('canvas');
 
+// SINGLE source of truth for every property that affects glyph layout.
+// The transparent <textarea> and the highlight <pre> MUST share these exactly,
+// or their text drifts apart line by line. Edit here only — never inline.
+const EDITOR_FONT_SIZE = 13;
+const EDITOR_LINE_HEIGHT = 21;   // integer px (13 * 1.6 = 20.8 → rounds inconsistently)
+const EDITOR_PAD = '10px 12px';
+const EDITOR_TEXT_STYLE = {
+  margin: 0,
+  padding: EDITOR_PAD,
+  fontFamily: 'var(--code-font)',
+  fontSize: EDITOR_FONT_SIZE,
+  lineHeight: `${EDITOR_LINE_HEIGHT}px`,
+  letterSpacing: 'normal',
+  wordSpacing: 'normal',
+  tabSize: 2,
+  textIndent: 0,
+  whiteSpace: 'pre',
+};
+
 function getCaretPixelPos(textarea) {
   const rect = textarea.getBoundingClientRect();
   const style = window.getComputedStyle(textarea);
@@ -149,8 +168,8 @@ export default function SqlEditor({ tab }) {
   const [activeLine, setActiveLine] = useState(null);
   const activeLineHlRef = useRef(null);
   const scrollTopRef = useRef(0);
-  const LINE_HEIGHT = 21;        // integer px — must match pre/textarea lineHeight
-  const EDITOR_PAD_TOP = 10;     // must match pre padding top
+  const LINE_HEIGHT = EDITOR_LINE_HEIGHT;  // shared with the text-layout style
+  const EDITOR_PAD_TOP = 10;               // must match pre padding top
 
   function updateActiveLine() {
     const ta = textareaRef.current;
@@ -759,10 +778,9 @@ export default function SqlEditor({ tab }) {
           className="sql-editor-pre"
           onClick={handlePreClick}
           style={{
+            ...EDITOR_TEXT_STYLE,
             position: 'absolute', inset: 0, overflow: 'hidden',
-            margin: 0, padding: '10px 12px',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
-            whiteSpace: 'pre', color: 'var(--text-primary)',
+            color: 'var(--text-primary)',
             background: 'transparent', pointerEvents: 'none',
           }}
         >
@@ -770,8 +788,8 @@ export default function SqlEditor({ tab }) {
         </pre>
         {!sql && (
           <div style={{
-            position: 'absolute', top: 0, left: 0, padding: '10px 12px',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
+            ...EDITOR_TEXT_STYLE,
+            position: 'absolute', top: 0, left: 0,
             color: 'var(--text-dim)', pointerEvents: 'none', userSelect: 'none',
           }}>
             SELECT * FROM TABLE_NAME;
@@ -816,12 +834,12 @@ export default function SqlEditor({ tab }) {
           }}
           className="sql-editor-ta"
           style={{
+            ...EDITOR_TEXT_STYLE,
             position: 'absolute', inset: 0,
             resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
             background: 'transparent', color: 'transparent',
-            caretColor: 'var(--text-primary)', padding: '10px 12px',
-            whiteSpace: 'pre', overflow: 'auto',
+            caretColor: 'var(--text-primary)',
+            overflow: 'auto',
           }}
           spellCheck={false}
           wrap="off"
