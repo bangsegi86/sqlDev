@@ -92,7 +92,7 @@ export default function DataGrid({
             </colgroup>
           )}
           <thead>
-            <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+            <tr>
               <th style={thStyle({ width: 44, cursor: 'default' })}>#</th>
               {columns.map(col => (
                 <th
@@ -221,7 +221,7 @@ function thStyle(extra = {}) {
     background: 'var(--bg-panel)', color: 'var(--text-secondary)', fontWeight: 600,
     padding: '5px 8px', textAlign: 'left',
     borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)',
-    position: 'sticky', top: 0,
+    position: 'sticky', top: 0, zIndex: 2,
     ...extra,
   };
 }
