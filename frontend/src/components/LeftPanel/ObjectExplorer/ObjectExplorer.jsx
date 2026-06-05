@@ -357,7 +357,15 @@ export default function ObjectExplorer() {
 
                 return (
                   <div key={type}>
-                    <div style={STYLE_TYPE} onClick={() => handleTypeClick(schema, type, isObjFiltering, expandedNodes)}>
+                    <div
+                      style={STYLE_TYPE}
+                      onClick={() => handleTypeClick(schema, type, isObjFiltering, expandedNodes)}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCtxMenu({ x: e.clientX, y: e.clientY, schema, type, name: null });
+                      }}
+                    >
                       <span style={{ marginRight: 4 }}>{showObjects ? '▾' : '▸'}</span>
                       <span style={{ color: 'var(--text-secondary)' }}>{TYPE_ICONS[type]}</span>
                       <span style={{ marginLeft: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -416,22 +424,24 @@ export default function ObjectExplorer() {
             refreshObjects(ctxMenu.schema, ctxMenu.type);
             setCtxMenu(null);
           }}>↻ 새로고침</div>
-          <div className="ctx-menu-sep" />
-          <div className="ctx-menu-item" onClick={() => {
-            makeObjectClickHandler(ctxMenu.schema)(ctxMenu.type, ctxMenu.name);
-            setCtxMenu(null);
-          }}>🔗 탭으로 열기</div>
-          <div className="ctx-menu-item" onClick={openScriptForCtx}>📄 스크립트 보기</div>
-          {ctxMenu.type === 'TABLE' && (
-            <div className="ctx-menu-item" onClick={openSpecForCtx}>
-              📑 테이블 명세서 만들기
-              {(() => {
-                const cur = selRef.current;
-                const count = (cur.schema === ctxMenu.schema && cur.type === 'TABLE') ? cur.names.size : 1;
-                return count > 1 ? <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>({count}개)</span> : null;
-              })()}
-            </div>
-          )}
+          {ctxMenu.name !== null && <>
+            <div className="ctx-menu-sep" />
+            <div className="ctx-menu-item" onClick={() => {
+              makeObjectClickHandler(ctxMenu.schema)(ctxMenu.type, ctxMenu.name);
+              setCtxMenu(null);
+            }}>🔗 탭으로 열기</div>
+            <div className="ctx-menu-item" onClick={openScriptForCtx}>📄 스크립트 보기</div>
+            {ctxMenu.type === 'TABLE' && (
+              <div className="ctx-menu-item" onClick={openSpecForCtx}>
+                📑 테이블 명세서 만들기
+                {(() => {
+                  const cur = selRef.current;
+                  const count = (cur.schema === ctxMenu.schema && cur.type === 'TABLE') ? cur.names.size : 1;
+                  return count > 1 ? <span style={{ color: 'var(--accent-bright)', marginLeft: 6 }}>({count}개)</span> : null;
+                })()}
+              </div>
+            )}
+          </>}
         </div>
       )}
 
