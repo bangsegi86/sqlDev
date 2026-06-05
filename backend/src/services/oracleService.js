@@ -328,7 +328,10 @@ export async function saveSource(id, schema, type, name, source) {
   const trimmed = source.trimStart();
   // ALL_SOURCE rows don't include "CREATE OR REPLACE", so we prepend if missing
   const hasCR = /^CREATE\s+OR\s+REPLACE\s+/i.test(trimmed);
-  const ddl = (hasCR ? trimmed : `CREATE OR REPLACE ${trimmed}`).replace(/;\s*$/, '');
+  let ddl = hasCR ? trimmed : `CREATE OR REPLACE ${trimmed}`;
+  // node-oracledb requires PL/SQL block to end with ';'
+  // Do NOT strip it — stripping causes Oracle to store END without ';' in ALL_SOURCE
+  if (!/;\s*$/.test(ddl)) ddl += ';';
   await execute(id, ddl, {});
   return { success: true };
 }
