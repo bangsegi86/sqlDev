@@ -58,7 +58,7 @@ function Header() {
           onClick={() => dispatch({ type: 'TOGGLE_LEFT_PANEL' })}
           title="패널 접기/펼치기"
           style={{ background: 'none', color: 'var(--text-secondary)', padding: '3px 6px', fontSize: 15, border: 'none', cursor: 'pointer', lineHeight: 1 }}
-        >{state.leftCollapsed ? '▶' : '◀'}</button>
+        >☰</button>
         <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0 }} />
         <span style={{ fontSize: 15 }}>🗄</span>
         <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: 0.4 }}>SQLDev</span>
