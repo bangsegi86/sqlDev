@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function CodeLookupMenu({ x, y, word, matchingDefs, onLookup, onManage, onClose }) {
+export default function CodeLookupMenu({ x, y, word, matchingDefs, navItems, onLookup, onManage, onClose }) {
   const menuRef = useRef(null);
   const [pos, setPos] = useState({ left: x, top: y });
 
@@ -38,8 +38,16 @@ export default function CodeLookupMenu({ x, y, word, matchingDefs, onLookup, onM
     >
       {word && (
         <div style={{ padding: '3px 12px 6px', color: 'var(--text-dim)', fontSize: 10, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
-          <b style={{ color: 'var(--text-secondary)' }}>{word}</b> 에 대한 코드 조회
+          <b style={{ color: 'var(--text-secondary)' }}>{word}</b>
         </div>
+      )}
+      {navItems && navItems.length > 0 && (
+        <>
+          {navItems.map((item, i) => (
+            <MenuItem key={i} icon={item.icon} label={item.label} onClick={item.onClick} />
+          ))}
+          <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+        </>
       )}
       {matchingDefs.length > 0 ? (
         matchingDefs.map(def => (

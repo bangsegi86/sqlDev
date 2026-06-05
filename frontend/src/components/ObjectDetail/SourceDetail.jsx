@@ -399,17 +399,34 @@ export default function SourceDetail({ tab }) {
       )}
 
       {/* Code lookup feature */}
-      {codeLookupCtx && (
-        <CodeLookupMenu
-          x={codeLookupCtx.x}
-          y={codeLookupCtx.y}
-          word={codeLookupCtx.word}
-          matchingDefs={codeLookupCtx.matchingDefs}
-          onLookup={openLookup}
-          onManage={() => { closeCtxMenu(); setCodeDictOpen(true); }}
-          onClose={closeCtxMenu}
-        />
-      )}
+      {codeLookupCtx && (() => {
+        const up = codeLookupCtx.word?.toUpperCase();
+        const navItems = [];
+        if (up && acItems.length > 0) {
+          const found = acItems.find(it => it.name.toUpperCase() === up);
+          if (found) {
+            const typeLabel = { PROCEDURE: '프로시저', FUNCTION: '함수' };
+            const typeIcon  = { PROCEDURE: '⚙', FUNCTION: 'ƒ' };
+            navItems.push({
+              icon: typeIcon[found.type] || '📄',
+              label: `${typeLabel[found.type] || found.type} 열기: ${found.name}`,
+              onClick: () => { closeCtxMenu(); navigateToObject(null, found.name, found.type); },
+            });
+          }
+        }
+        return (
+          <CodeLookupMenu
+            x={codeLookupCtx.x}
+            y={codeLookupCtx.y}
+            word={codeLookupCtx.word}
+            matchingDefs={codeLookupCtx.matchingDefs}
+            navItems={navItems}
+            onLookup={openLookup}
+            onManage={() => { closeCtxMenu(); setCodeDictOpen(true); }}
+            onClose={closeCtxMenu}
+          />
+        );
+      })()}
       {codeLookup && (
         <CodeLookupPopup
           def={codeLookup.def}

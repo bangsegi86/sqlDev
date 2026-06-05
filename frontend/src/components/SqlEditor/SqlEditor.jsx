@@ -847,17 +847,34 @@ export default function SqlEditor({ tab }) {
       {aliasOpen && <AliasOptionsModal onClose={() => setAliasOpen(false)} />}
 
       {/* SQL right-click context menu */}
-      {sqlCtxMenu && (
-        <CodeLookupMenu
-          x={sqlCtxMenu.x}
-          y={sqlCtxMenu.y}
-          word={sqlCtxMenu.word}
-          matchingDefs={sqlCtxMenu.matchingDefs}
-          onLookup={openLookup}
-          onManage={() => { closeCtxMenu(); setCodeDictOpen(true); }}
-          onClose={closeCtxMenu}
-        />
-      )}
+      {sqlCtxMenu && (() => {
+        const up = sqlCtxMenu.word?.toUpperCase();
+        const navItems = [];
+        if (up && acItems.length > 0) {
+          const found = acItems.find(it => it.name.toUpperCase() === up);
+          if (found) {
+            const typeLabel = { TABLE: '테이블', VIEW: '뷰', PROCEDURE: '프로시저', FUNCTION: '함수', SEQUENCE: '시퀀스' };
+            const typeIcon  = { TABLE: '🗃', VIEW: '👁', PROCEDURE: '⚙', FUNCTION: 'ƒ', SEQUENCE: '🔢' };
+            navItems.push({
+              icon: typeIcon[found.type] || '📄',
+              label: `${typeLabel[found.type] || found.type} 열기: ${found.name}`,
+              onClick: () => { closeCtxMenu(); navigateToObject(null, found.name, found.type); },
+            });
+          }
+        }
+        return (
+          <CodeLookupMenu
+            x={sqlCtxMenu.x}
+            y={sqlCtxMenu.y}
+            word={sqlCtxMenu.word}
+            matchingDefs={sqlCtxMenu.matchingDefs}
+            navItems={navItems}
+            onLookup={openLookup}
+            onManage={() => { closeCtxMenu(); setCodeDictOpen(true); }}
+            onClose={closeCtxMenu}
+          />
+        );
+      })()}
 
       {/* Code value lookup popup */}
       {codeLookup && (
