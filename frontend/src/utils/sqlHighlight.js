@@ -220,7 +220,8 @@ export function highlightTokens(src) {
     }
 
     // Any identifier followed by '(' → function call
-    if (nextNonWsIs(raw, j, '(')) {
+    // But exclude Oracle outer-join (+) syntax: COLUMN (+)
+    if (nextNonWsIs(raw, j, '(') && !isOraclePlusJoin(raw, j)) {
       out.push({ color: SQL_COLORS.builtin, value: tok.v });
       continue;
     }
@@ -230,6 +231,17 @@ export function highlightTokens(src) {
   }
 
   return out;
+}
+
+// Returns true if the token at j is followed by Oracle outer-join (+) syntax
+function isOraclePlusJoin(raw, j) {
+  let k = j + 1;
+  while (k < raw.length && raw[k].k === 'ws') k++;
+  if (k >= raw.length || raw[k].v !== '(') return false;
+  k++;
+  if (k >= raw.length || raw[k].v !== '+') return false;
+  k++;
+  return k < raw.length && raw[k].v === ')';
 }
 
 function nextIsDot(raw, j) {
