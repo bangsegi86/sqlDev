@@ -145,6 +145,24 @@ export default function SqlEditor({ tab }) {
   const textareaRef = useRef(null);
   const preRef = useRef(null);
 
+  // Active line indicator
+  const [activeLine, setActiveLine] = useState(null);
+  const activeLineHlRef = useRef(null);
+  const scrollTopRef = useRef(0);
+  const LINE_HEIGHT = 13 * 1.6;  // must match pre fontSize * lineHeight
+  const EDITOR_PAD_TOP = 10;     // must match pre padding top
+
+  function updateActiveLine() {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const line = ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
+    setActiveLine(line);
+    if (activeLineHlRef.current) {
+      activeLineHlRef.current.style.top =
+        `${EDITOR_PAD_TOP + line * LINE_HEIGHT - ta.scrollTop}px`;
+    }
+  }
+
   const connId = tab.connectionId || state.activeConnectionId;
   const schema = state.selectedSchema?.schemaName;
 
@@ -291,9 +309,16 @@ export default function SqlEditor({ tab }) {
   }, [hlWord]);
 
   function syncScroll() {
-    if (preRef.current && textareaRef.current) {
-      preRef.current.scrollTop = textareaRef.current.scrollTop;
-      preRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    const ta = textareaRef.current;
+    const pre = preRef.current;
+    if (pre && ta) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+      scrollTopRef.current = ta.scrollTop;
+      if (activeLineHlRef.current && activeLine !== null) {
+        activeLineHlRef.current.style.top =
+          `${EDITOR_PAD_TOP + activeLine * LINE_HEIGHT - ta.scrollTop}px`;
+      }
     }
   }
 
@@ -457,6 +482,8 @@ export default function SqlEditor({ tab }) {
     // visible delay between typing and characters appearing in the editor.
     // React 18 batches both state updates into one DOM commit.
     setHighlightedSql(renderHighlighted(newSql, navigableNames, ''));
+    // Recalculate active line after content change
+    requestAnimationFrame(updateActiveLine);
 
     // If autocomplete is open, update filter as user types
     if (acOpen) {
@@ -705,6 +732,22 @@ export default function SqlEditor({ tab }) {
 
       {/* Editor overlay */}
       <div style={{ position: 'relative', height: `${splitPos}%`, overflow: 'hidden', background: 'var(--bg-primary)' }}>
+
+        {/* Current line highlight — positioned via DOM imperative updates in syncScroll */}
+        {activeLine !== null && (
+          <div
+            ref={activeLineHlRef}
+            style={{
+              position: 'absolute', left: 0, right: 0,
+              top: EDITOR_PAD_TOP + activeLine * LINE_HEIGHT - scrollTopRef.current,
+              height: LINE_HEIGHT,
+              background: 'rgba(255,255,255,0.06)',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+        )}
+
         <pre
           ref={preRef}
           aria-hidden="true"
@@ -715,7 +758,7 @@ export default function SqlEditor({ tab }) {
             margin: 0, padding: '10px 12px',
             fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
             whiteSpace: 'pre', color: 'var(--text-primary)',
-            background: 'var(--bg-primary)', pointerEvents: 'none',
+            background: 'transparent', pointerEvents: 'none',
           }}
         >
           {highlightedSql}{'\n'}
@@ -734,8 +777,8 @@ export default function SqlEditor({ tab }) {
           value={sql}
           onChange={handleChange}
           onScroll={() => { syncScroll(); if (acOpen) closeAutocomplete(); }}
-          onKeyDown={e => { handleKeyDown(e); syncScroll(); }}
-          onKeyUp={syncScroll}
+          onKeyDown={e => { handleKeyDown(e); syncScroll(); requestAnimationFrame(updateActiveLine); }}
+          onKeyUp={() => { syncScroll(); updateActiveLine(); }}
           onBlur={() => { setTimeout(closeAutocomplete, 150); }}
           onContextMenu={handleContextMenu}
           onMouseDown={() => {
@@ -750,6 +793,7 @@ export default function SqlEditor({ tab }) {
           }}
           onClick={e => {
             syncScroll();
+            updateActiveLine();
             if (acOpen) closeAutocomplete();
             if (e.ctrlKey) {
               const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
