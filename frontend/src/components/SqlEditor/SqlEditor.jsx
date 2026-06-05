@@ -100,8 +100,10 @@ function getCaretPixelPos(textarea) {
   const row = lines.length - 1;
   const colWidth = ctx.measureText(lines[row]).width;
 
-  const caretTop    = rect.top  + paddingTop  + row * lineHeight - textarea.scrollTop;
-  const caretLeft   = rect.left + paddingLeft + colWidth         - textarea.scrollLeft;
+  // textarea has overflow:hidden (outer div scrolls); rect already reflects
+  // the scrolled viewport position, so no scrollTop/scrollLeft subtraction needed.
+  const caretTop    = rect.top  + paddingTop  + row * lineHeight;
+  const caretLeft   = rect.left + paddingLeft + colWidth;
   const caretBottom = caretTop  + lineHeight;
 
   return {
@@ -164,22 +166,16 @@ export default function SqlEditor({ tab }) {
   const textareaRef = useRef(null);
   const preRef = useRef(null);
 
-  // Active line indicator
+  // Active line indicator — no scroll offset needed (div lives inside the scroll container)
   const [activeLine, setActiveLine] = useState(null);
-  const activeLineHlRef = useRef(null);
-  const scrollTopRef = useRef(0);
-  const LINE_HEIGHT = EDITOR_LINE_HEIGHT;  // shared with the text-layout style
-  const EDITOR_PAD_TOP = 10;               // must match pre padding top
+  const LINE_HEIGHT = EDITOR_LINE_HEIGHT;
+  const EDITOR_PAD_TOP = 10;
 
   function updateActiveLine() {
     const ta = textareaRef.current;
     if (!ta) return;
     const line = ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
     setActiveLine(line);
-    if (activeLineHlRef.current) {
-      activeLineHlRef.current.style.top =
-        `${EDITOR_PAD_TOP + line * LINE_HEIGHT - ta.scrollTop}px`;
-    }
   }
 
   const connId = tab.connectionId || state.activeConnectionId;
@@ -326,23 +322,6 @@ export default function SqlEditor({ tab }) {
     setHighlightedSql(renderHighlighted(sql, navigableNames, hlWordRef.current));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hlWord]);
-
-  function syncScroll() {
-    const ta = textareaRef.current;
-    const pre = preRef.current;
-    if (pre && ta) {
-      // Move the highlight layer with a transform instead of scrollTop.
-      // The textarea is the only real scroller; translating the <pre> keeps
-      // it pixel-locked to the textarea at any scroll position (scrollTop on
-      // an overflow:hidden element can desync).
-      pre.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
-      scrollTopRef.current = ta.scrollTop;
-      if (activeLineHlRef.current && activeLine !== null) {
-        activeLineHlRef.current.style.top =
-          `${EDITOR_PAD_TOP + activeLine * LINE_HEIGHT - ta.scrollTop}px`;
-      }
-    }
-  }
 
   function openAutocomplete() {
     if (!connId || !schema) return;
@@ -757,108 +736,119 @@ export default function SqlEditor({ tab }) {
         </span>
       </div>
 
-      {/* Editor overlay */}
-      <div style={{ position: 'relative', height: `${splitPos}%`, overflow: 'hidden', background: 'var(--bg-primary)' }}>
+      {/* Editor — outer div scrolls; pre + textarea are both inside so they
+          move together with zero sync code. This eliminates all drift. */}
+      <div
+        style={{
+          position: 'relative', height: `${splitPos}%`,
+          overflow: 'auto', background: 'var(--bg-primary)',
+        }}
+        onScroll={() => { if (acOpen) closeAutocomplete(); }}
+      >
+        {/* Content wrapper — grows with the <pre> so the outer div scrolls it */}
+        <div style={{ position: 'relative', minWidth: 'max-content', minHeight: '100%' }}>
 
-        {/* Current line highlight — positioned via DOM imperative updates in syncScroll */}
-        {activeLine !== null && (
-          <div
-            ref={activeLineHlRef}
-            style={{
+          {/* Active line highlight — inside the scroll container, so no offset needed */}
+          {activeLine !== null && (
+            <div style={{
               position: 'absolute', left: 0, right: 0,
-              top: EDITOR_PAD_TOP + activeLine * LINE_HEIGHT - scrollTopRef.current,
+              top: EDITOR_PAD_TOP + activeLine * LINE_HEIGHT,
               height: LINE_HEIGHT,
               background: 'rgba(255,255,255,0.06)',
+              pointerEvents: 'none', zIndex: 0,
+            }} />
+          )}
+
+          {/* Syntax highlight layer — natural flow, sizes the content wrapper */}
+          <pre
+            ref={preRef}
+            aria-hidden="true"
+            className="sql-editor-pre"
+            onClick={handlePreClick}
+            style={{
+              ...EDITOR_TEXT_STYLE,
+              display: 'block',
+              color: 'var(--text-primary)',
+              background: 'transparent',
               pointerEvents: 'none',
-              zIndex: 1,
+              position: 'relative', zIndex: 1,
             }}
-          />
-        )}
+          >
+            {highlightedSql}{'\n'}
+          </pre>
 
-        <pre
-          ref={preRef}
-          aria-hidden="true"
-          className="sql-editor-pre"
-          onClick={handlePreClick}
-          style={{
-            ...EDITOR_TEXT_STYLE,
-            position: 'absolute', top: 0, left: 0,
-            minWidth: '100%', willChange: 'transform',
-            color: 'var(--text-primary)',
-            background: 'transparent', pointerEvents: 'none',
-          }}
-        >
-          {highlightedSql}{'\n'}
-        </pre>
-        {!sql && (
-          <div style={{
-            ...EDITOR_TEXT_STYLE,
-            position: 'absolute', top: 0, left: 0,
-            color: 'var(--text-dim)', pointerEvents: 'none', userSelect: 'none',
-          }}>
-            SELECT * FROM TABLE_NAME;
-          </div>
-        )}
-        <textarea
-          ref={textareaRef}
-          value={sql}
-          onChange={handleChange}
-          onScroll={() => { syncScroll(); if (acOpen) closeAutocomplete(); }}
-          onKeyDown={e => { handleKeyDown(e); syncScroll(); requestAnimationFrame(updateActiveLine); }}
-          onKeyUp={() => { syncScroll(); updateActiveLine(); }}
-          onBlur={() => { setTimeout(closeAutocomplete, 150); }}
-          onContextMenu={handleContextMenu}
-          onMouseDown={() => {
-            // Schedule clear — cancelled if dblclick fires within 300ms
-            clearTimeout(clearHlTimerRef.current);
-            if (hlWordRef.current) {
-              clearHlTimerRef.current = setTimeout(() => {
-                hlWordRef.current = '';
-                setHlWord('');
-              }, 300);
-            }
-          }}
-          onClick={e => {
-            syncScroll();
-            updateActiveLine();
-            if (acOpen) closeAutocomplete();
-            if (e.ctrlKey) {
-              const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
-              handleObjectNavigation(pos);
-            }
-          }}
-          onDoubleClick={e => {
-            clearTimeout(clearHlTimerRef.current);
-            const ta = e.target;
-            const word = sql.slice(ta.selectionStart, ta.selectionEnd).trim();
-            if (word && /^[\w$#]+$/.test(word)) {
-              hlWordRef.current = word;
-              setHlWord(word);
-            }
-          }}
-          className="sql-editor-ta"
-          style={{
-            ...EDITOR_TEXT_STYLE,
-            position: 'absolute', inset: 0,
-            resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
-            background: 'transparent', color: 'transparent',
-            caretColor: 'var(--text-primary)',
-            overflow: 'auto',
-          }}
-          spellCheck={false}
-          wrap="off"
-        />
+          {/* Placeholder */}
+          {!sql && (
+            <div style={{
+              ...EDITOR_TEXT_STYLE,
+              position: 'absolute', top: 0, left: 0,
+              color: 'var(--text-dim)', pointerEvents: 'none', userSelect: 'none',
+              zIndex: 1,
+            }}>
+              SELECT * FROM TABLE_NAME;
+            </div>
+          )}
 
-        {/* Autocomplete dropdown — rendered via portal-like fixed positioning */}
-        {acOpen && acAnchor && (
-          <AutocompleteDropdown
-            items={acItems}
-            filter={acFilter}
-            anchorRect={acAnchor}
-            onSelect={applyAutocomplete}
-            onDismiss={closeAutocomplete}
+          {/* Transparent input layer — fills the content wrapper, no own scroll */}
+          <textarea
+            ref={textareaRef}
+            value={sql}
+            onChange={handleChange}
+            onKeyDown={e => { handleKeyDown(e); requestAnimationFrame(updateActiveLine); }}
+            onKeyUp={updateActiveLine}
+            onBlur={() => { setTimeout(closeAutocomplete, 150); }}
+            onContextMenu={handleContextMenu}
+            onMouseDown={() => {
+              clearTimeout(clearHlTimerRef.current);
+              if (hlWordRef.current) {
+                clearHlTimerRef.current = setTimeout(() => {
+                  hlWordRef.current = '';
+                  setHlWord('');
+                }, 300);
+              }
+            }}
+            onClick={e => {
+              updateActiveLine();
+              if (acOpen) closeAutocomplete();
+              if (e.ctrlKey) {
+                const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
+                handleObjectNavigation(pos);
+              }
+            }}
+            onDoubleClick={e => {
+              clearTimeout(clearHlTimerRef.current);
+              const ta = e.target;
+              const word = sql.slice(ta.selectionStart, ta.selectionEnd).trim();
+              if (word && /^[\w$#]+$/.test(word)) {
+                hlWordRef.current = word;
+                setHlWord(word);
+              }
+            }}
+            className="sql-editor-ta"
+            style={{
+              ...EDITOR_TEXT_STYLE,
+              position: 'absolute', inset: 0,
+              resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
+              background: 'transparent', color: 'transparent',
+              caretColor: 'var(--text-primary)',
+              overflow: 'hidden',   // no textarea scroll — outer div scrolls
+              zIndex: 2,
+            }}
+            spellCheck={false}
+            wrap="off"
           />
-        )}
+
+          {/* Autocomplete dropdown */}
+          {acOpen && acAnchor && (
+            <AutocompleteDropdown
+              items={acItems}
+              filter={acFilter}
+              anchorRect={acAnchor}
+              onSelect={applyAutocomplete}
+              onDismiss={closeAutocomplete}
+            />
+          )}
+        </div>
       </div>
 
       <div
