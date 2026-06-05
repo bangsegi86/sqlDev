@@ -881,7 +881,7 @@ export default function SqlEditor({ tab }) {
           matchingDefs={sqlCtxMenu.matchingDefs}
           onLookup={def => {
             setSqlCtxMenu(null);
-            setCodeLookup({ def, x: sqlCtxMenu.x, y: sqlCtxMenu.y });
+            setCodeLookup({ def, word: sqlCtxMenu.word, x: sqlCtxMenu.x, y: sqlCtxMenu.y });
           }}
           onManage={() => { setSqlCtxMenu(null); setCodeDictOpen(true); }}
           onClose={() => setSqlCtxMenu(null)}
@@ -892,6 +892,7 @@ export default function SqlEditor({ tab }) {
       {codeLookup && (
         <CodeLookupPopup
           def={codeLookup.def}
+          word={codeLookup.word}
           connId={connId}
           schema={schema}
           x={codeLookup.x}

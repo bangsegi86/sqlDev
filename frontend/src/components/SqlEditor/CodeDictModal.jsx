@@ -106,7 +106,7 @@ export default function CodeDictModal({ onClose }) {
 
             <Field
               label="조회 쿼리"
-              hint="현재 활성 연결로 실행됩니다. SELECT 문만 입력하세요."
+              hint=":VALUE 를 쓰면 우클릭한 단어로 자동 치환됩니다. 예) WHERE CODE = :VALUE"
             >
               <textarea
                 style={{ ...INPUT_STYLE, height: 90, resize: 'vertical', fontFamily: 'var(--code-font)', fontSize: 12 }}

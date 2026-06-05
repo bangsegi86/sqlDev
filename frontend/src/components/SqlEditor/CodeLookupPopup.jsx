@@ -1,20 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../api/client.js';
 
-export default function CodeLookupPopup({ def, connId, schema, x, y, onClose }) {
+// Replace :VALUE placeholder with the word under cursor (single-quoted string literal)
+function buildQuery(query, word) {
+  if (!word) return query;
+  const escaped = word.replace(/'/g, "''");
+  return query.replace(/:VALUE\b/gi, `'${escaped}'`);
+}
+
+export default function CodeLookupPopup({ def, word, connId, schema, x, y, onClose }) {
   const [rows, setRows] = useState([]);
   const [cols, setCols] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const popupRef = useRef(null);
 
+  const finalQuery = buildQuery(def.query, word);
+  const hasFilter = /:VALUE\b/i.test(def.query) && !!word;
+
   useEffect(() => {
     if (!connId) { setError('연결을 선택하세요.'); setLoading(false); return; }
-    api.executeQuery(connId, def.query, schema, 1, 500)
+    api.executeQuery(connId, finalQuery, schema, 1, 500)
       .then(r => { setCols(r.columns || []); setRows(r.rows || []); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [def.id, connId]);
+  }, [finalQuery, connId]);
 
   // Position: place popup near click, avoid viewport overflow
   const [pos, setPos] = useState({ left: x, top: y + 6 });
@@ -68,7 +78,14 @@ export default function CodeLookupPopup({ def, connId, schema, x, y, onClose }) 
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         flexShrink: 0,
       }}>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>📖 {def.label}</span>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
+          📖 {def.label}
+          {hasFilter && (
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: 'var(--accent-bright)' }}>
+              = '{word}'
+            </span>
+          )}
+        </span>
         <button
           onClick={onClose}
           style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
@@ -133,7 +150,7 @@ export default function CodeLookupPopup({ def, connId, schema, x, y, onClose }) 
           color: 'var(--text-dim)', fontSize: 10, flexShrink: 0,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
-          {rows.length}건 · {def.query.length > 70 ? def.query.slice(0, 70) + '…' : def.query}
+          {rows.length}건 · {finalQuery.length > 70 ? finalQuery.slice(0, 70) + '…' : finalQuery}
         </div>
       )}
     </div>
