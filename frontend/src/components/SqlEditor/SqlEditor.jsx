@@ -500,8 +500,11 @@ export default function SqlEditor({ tab }) {
 
   async function execute() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
-    const cursorPos = textareaRef.current?.selectionStart ?? 0;
-    const stmt = getStatementAtCursor(sql, cursorPos);
+    const ta = textareaRef.current;
+    // Prefer selected text; fall back to ';'-delimited statement at cursor
+    const stmt = (ta && ta.selectionStart !== ta.selectionEnd)
+      ? sql.slice(ta.selectionStart, ta.selectionEnd).trim()
+      : getStatementAtCursor(sql, ta?.selectionStart ?? 0);
     if (!stmt) return;
 
     closeAutocomplete();
@@ -548,8 +551,10 @@ export default function SqlEditor({ tab }) {
 
   async function explainPlan() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
-    const cursorPos = textareaRef.current?.selectionStart ?? 0;
-    const stmt = getStatementAtCursor(sql, cursorPos);
+    const ta = textareaRef.current;
+    const stmt = (ta && ta.selectionStart !== ta.selectionEnd)
+      ? sql.slice(ta.selectionStart, ta.selectionEnd).trim()
+      : getStatementAtCursor(sql, ta?.selectionStart ?? 0);
     if (!stmt) return;
 
     closeAutocomplete();
@@ -726,7 +731,7 @@ export default function SqlEditor({ tab }) {
           </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5/Ctrl+Enter 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체이동 · 우클릭 코드조회
+          F5/Ctrl+Enter 실행 (선택 시 선택만) · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체이동 · 우클릭 코드조회
         </span>
       </div>
 

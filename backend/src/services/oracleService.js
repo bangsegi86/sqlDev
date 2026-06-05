@@ -344,13 +344,33 @@ export async function getSequenceInfo(id, schema, name) {
   return r.rows[0] || null;
 }
 
+// Strip leading line/block comments to correctly detect statement type
+function stripLeadingComments(s) {
+  let cur = s.trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (cur.startsWith('--')) {
+      const nl = cur.indexOf('\n');
+      cur = (nl === -1 ? '' : cur.slice(nl + 1)).trim();
+      changed = true;
+    }
+    if (cur.startsWith('/*')) {
+      const end = cur.indexOf('*/');
+      cur = (end === -1 ? '' : cur.slice(end + 2)).trim();
+      changed = true;
+    }
+  }
+  return cur;
+}
+
 export async function executeSQL(id, sql, schema, { page = 1, limit = 200 } = {}) {
   const entry = pools.get(id);
   if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
 
   // Strip trailing semicolons / whitespace
   const cleanSql = sql.trim().replace(/;+\s*$/, '');
-  const isSelect = /^\s*(SELECT|WITH)\b/i.test(cleanSql);
+  const isSelect = /^\s*(SELECT|WITH)\b/i.test(stripLeadingComments(cleanSql));
   const pageNum = Math.max(1, Number(page) || 1);
   const lim = Math.min(2000, Math.max(1, Number(limit) || 200));
   const offset = (pageNum - 1) * lim;
