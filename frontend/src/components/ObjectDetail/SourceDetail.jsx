@@ -8,6 +8,10 @@ import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
+import { useCodeLookup } from '../../hooks/useCodeLookup.js';
+import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
+import CodeLookupPopup from '../SqlEditor/CodeLookupPopup.jsx';
+import CodeDictModal from '../SqlEditor/CodeDictModal.jsx';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 const CALLABLE_TYPES = ['PROCEDURE', 'FUNCTION'];
@@ -30,6 +34,18 @@ export default function SourceDetail({ tab }) {
   const [compileResult, setCompileResult] = useState(null);
   const [compileLoading, setCompileLoading] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
+
+  // Code lookup feature
+  const {
+    ctxMenu: codeLookupCtx,
+    lookup: codeLookup,
+    dictOpen: codeDictOpen,
+    setDictOpen: setCodeDictOpen,
+    openContextMenu,
+    openLookup,
+    closeCtxMenu,
+    closeLookup,
+  } = useCodeLookup();
 
   // Ctrl+click navigation state
   const [acItems, setAcItems] = useState([]);
@@ -263,6 +279,7 @@ export default function SourceDetail({ tab }) {
                 <SyntaxTextarea
                   value={editedSource}
                   onChange={setEditedSource}
+                  onContextMenu={e => openContextMenu(e, editedSource)}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 />
               ) : (
@@ -270,6 +287,7 @@ export default function SourceDetail({ tab }) {
                   <pre
                     ref={preRef}
                     className="sql-source-pre"
+                    onContextMenu={openContextMenu}
                     style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
                   >
                     {(highlightedLines || []).map((lineToks, i) => (
@@ -378,6 +396,33 @@ export default function SourceDetail({ tab }) {
           onClose={() => setShowSaveModal(false)}
           onSuccess={() => { setEditMode(false); loadSource(); }}
         />
+      )}
+
+      {/* Code lookup feature */}
+      {codeLookupCtx && (
+        <CodeLookupMenu
+          x={codeLookupCtx.x}
+          y={codeLookupCtx.y}
+          word={codeLookupCtx.word}
+          matchingDefs={codeLookupCtx.matchingDefs}
+          onLookup={openLookup}
+          onManage={() => { closeCtxMenu(); setCodeDictOpen(true); }}
+          onClose={closeCtxMenu}
+        />
+      )}
+      {codeLookup && (
+        <CodeLookupPopup
+          def={codeLookup.def}
+          word={codeLookup.word}
+          connId={connId}
+          schema={schema}
+          x={codeLookup.x}
+          y={codeLookup.y}
+          onClose={closeLookup}
+        />
+      )}
+      {codeDictOpen && (
+        <CodeDictModal onClose={() => setCodeDictOpen(false)} />
       )}
     </div>
   );
