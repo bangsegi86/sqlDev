@@ -63,6 +63,7 @@ function getWordAtCursor(text, pos) {
 function patternMatches(pattern, word) {
   const p = pattern.toUpperCase();
   const w = word.toUpperCase();
+  if (p === '*') return true;
   if (p === w) return true;
   if (p.startsWith('*') && p.length > 1) return w.endsWith(p.slice(1));
   if (p.endsWith('*') && p.length > 1) return w.startsWith(p.slice(0, -1));
