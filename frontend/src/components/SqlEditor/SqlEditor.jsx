@@ -814,6 +814,7 @@ export default function SqlEditor({ tab }) {
               setHlWord(word);
             }
           }}
+          className="sql-editor-ta"
           style={{
             position: 'absolute', inset: 0,
             resize: 'none', border: 'none', borderRadius: 0, outline: 'none',

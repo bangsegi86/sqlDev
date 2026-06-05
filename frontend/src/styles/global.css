@@ -348,6 +348,16 @@ textarea { resize: none; font-family: var(--code-font); }
   text-decoration: underline; text-underline-offset: 2px;
 }
 
+/* Keep textarea text invisible even when selected — prevents doubling with <pre> overlay */
+.sql-editor-ta::selection {
+  color: transparent;
+  background: rgba(79, 193, 255, 0.28);
+}
+.sql-editor-ta::-moz-selection {
+  color: transparent;
+  background: rgba(79, 193, 255, 0.28);
+}
+
 /* ── Flowchart ── */
 .flow-clickable { cursor: pointer !important; }
 .flow-clickable:hover { opacity: 0.78; }
