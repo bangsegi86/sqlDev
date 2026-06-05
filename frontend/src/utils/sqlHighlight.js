@@ -19,7 +19,7 @@ const SQL_KW = new Set([
 // SQL_KW takes precedence; PLSQL_KW only applies to words not in SQL_KW
 const PLSQL_KW = new Set([
   'CREATE','OR','REPLACE',
-  'PROCEDURE','FUNCTION','PACKAGE','BODY','TRIGGER','TYPE',
+  'PROCEDURE','FUNCTION','PACKAGE','BODY','TRIGGER','TYPE','ROWTYPE',
   'BEGIN','DECLARE','EXCEPTION',
   'IF','ELSIF','LOOP','WHILE','FOR','EXIT','CONTINUE',
   'RETURN','RAISE',
@@ -50,6 +50,14 @@ const BUILTIN_FN = new Set([
   'RAISE_APPLICATION_ERROR',
   'CAST','CONVERT','CHARTOROWID','ROWIDTOCHAR',
   'DUMP','VSIZE','USERENV','ORA_ROWSCN',
+  // Oracle data types — colored consistently regardless of trailing (n)
+  'VARCHAR2','NVARCHAR2','CHAR','NCHAR',
+  'NUMBER','FLOAT','INTEGER','SMALLINT','INT','DECIMAL',
+  'DATE','TIMESTAMP','INTERVAL',
+  'CLOB','BLOB','NCLOB','BFILE','RAW','LONG',
+  'BOOLEAN','BINARY_INTEGER','PLS_INTEGER',
+  'BINARY_FLOAT','BINARY_DOUBLE',
+  'XMLTYPE','UROWID','ROWID',
 ]);
 
 // ── Colors (VS Code Dark+ inspired, dark-theme friendly) ──────────────────────
