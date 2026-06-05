@@ -262,22 +262,32 @@ export default function SqlEditor({ tab }) {
     [acItems]
   );
 
+  // Word highlight on double-click
+  const [hlWord, setHlWord] = useState('');
+  const hlWordRef = useRef('');
+
   // highlightedSql is updated synchronously in handleChange (same render as setSql)
   // to eliminate the visible lag from a separate debounced state update.
   // navigableNames changes (object list load) still use a debounce since they
   // arrive outside of user input and don't need to be instant.
-  const [highlightedSql, setHighlightedSql] = useState(() => renderHighlighted(sql, navigableNames));
+  const [highlightedSql, setHighlightedSql] = useState(() => renderHighlighted(sql, navigableNames, ''));
   const hlNavTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(hlNavTimerRef.current);
     hlNavTimerRef.current = setTimeout(() => {
-      setHighlightedSql(renderHighlighted(sql, navigableNames));
+      setHighlightedSql(renderHighlighted(sql, navigableNames, hlWordRef.current));
     }, 80);
     return () => clearTimeout(hlNavTimerRef.current);
   // Only re-run when navigableNames changes, NOT on sql change —
   // sql-driven updates happen synchronously in handleChange.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigableNames]);
+
+  // Recompute highlight when selected word changes
+  useEffect(() => {
+    setHighlightedSql(renderHighlighted(sql, navigableNames, hlWordRef.current));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hlWord]);
 
   function syncScroll() {
     if (preRef.current && textareaRef.current) {
@@ -407,6 +417,12 @@ export default function SqlEditor({ tab }) {
     // (handled by the dropdown's own keydown listener with capture)
     if (acOpen && ['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key)) return;
 
+    if (e.key === 'Escape' && hlWordRef.current) {
+      hlWordRef.current = '';
+      setHlWord('');
+      return;
+    }
+
     // Close autocomplete on keys that break word context
     if (acOpen && (e.key === ' ' || e.key === '(' || e.key === ')' || e.key === ';')) {
       closeAutocomplete();
@@ -418,7 +434,7 @@ export default function SqlEditor({ tab }) {
       const end = e.target.selectionEnd;
       const newSql = sql.slice(0, start) + '  ' + sql.slice(end);
       setSql(newSql);
-      setHighlightedSql(renderHighlighted(newSql, navigableNames));
+      setHighlightedSql(renderHighlighted(newSql, navigableNames, hlWordRef.current));
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
@@ -435,10 +451,11 @@ export default function SqlEditor({ tab }) {
   function handleChange(e) {
     const newSql = e.target.value;
     setSql(newSql);
+    if (hlWordRef.current) { hlWordRef.current = ''; setHlWord(''); }
     // Update highlight in the same render cycle as setSql so there is no
     // visible delay between typing and characters appearing in the editor.
     // React 18 batches both state updates into one DOM commit.
-    setHighlightedSql(renderHighlighted(newSql, navigableNames));
+    setHighlightedSql(renderHighlighted(newSql, navigableNames, ''));
 
     // If autocomplete is open, update filter as user types
     if (acOpen) {
@@ -726,6 +743,14 @@ export default function SqlEditor({ tab }) {
             if (e.ctrlKey) {
               const pos = Math.floor((e.target.selectionStart + e.target.selectionEnd) / 2);
               handleObjectNavigation(pos);
+            }
+          }}
+          onDoubleClick={e => {
+            const ta = e.target;
+            const word = sql.slice(ta.selectionStart, ta.selectionEnd).trim();
+            if (word && /^[\w$#]+$/.test(word)) {
+              hlWordRef.current = word;
+              setHlWord(word);
             }
           }}
           style={{

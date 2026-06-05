@@ -47,6 +47,9 @@ export default function SourceDetail({ tab }) {
     closeLookup,
   } = useCodeLookup();
 
+  // Word highlight on double-click
+  const [hlWord, setHlWord] = useState('');
+
   // Ctrl+click navigation state
   const [acItems, setAcItems] = useState([]);
   const acSchemaRef = useRef(null);
@@ -283,12 +286,50 @@ export default function SourceDetail({ tab }) {
 
             {loading && <div className="pane-loading"><span className="spinner" />소스 로딩 중...</div>}
             {error && <div className="error-pane"><span className="error-pane-msg">{error}</span></div>}
-            {!loading && !error && (
-              editMode ? (
+            {!loading && !error && (() => {
+              const hlUp = hlWord ? hlWord.toUpperCase() : null;
+              const wordRe = /^[\w$#]+$/;
+              const hlBg = { background: 'rgba(255,200,50,0.32)', borderRadius: 2 };
+              const isHl = (val) => hlUp && wordRe.test(val) && val.toUpperCase() === hlUp;
+
+              function renderTok(tok, j, lineToks) {
+                const hl = isHl(tok.value) ? hlBg : {};
+                if (!tok.color) {
+                  return isHl(tok.value)
+                    ? <span key={j} style={hlBg}>{tok.value}</span>
+                    : tok.value;
+                }
+                if (tok.color === SQL_COLORS.table) {
+                  return (
+                    <span key={j} className="sql-table-token"
+                      style={{ color: tok.color, ...hl }}
+                      title="Ctrl+Click: 테이블 상세 열기"
+                      onClick={e => handleTableClick(e, tok, j, lineToks)}
+                    >{tok.value}</span>
+                  );
+                }
+                if (navigableCallableNames.has(tok.value.toUpperCase())) {
+                  return (
+                    <span key={j} className="sql-callable-token"
+                      style={{ color: tok.color, ...hl }}
+                      title="Ctrl+Click: 상세 열기"
+                      onClick={e => handleCallableClick(e, tok.value)}
+                    >{tok.value}</span>
+                  );
+                }
+                return <span key={j} style={{ color: tok.color, ...hl }}>{tok.value}</span>;
+              }
+
+              return editMode ? (
                 <SyntaxTextarea
                   value={editedSource}
                   onChange={setEditedSource}
                   onContextMenu={e => openContextMenu(e, editedSource)}
+                  onDoubleClick={e => {
+                    const ta = e.target;
+                    const word = editedSource.slice(ta.selectionStart, ta.selectionEnd).trim();
+                    if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
+                  }}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 />
               ) : (
@@ -297,39 +338,27 @@ export default function SourceDetail({ tab }) {
                     ref={preRef}
                     className="sql-source-pre"
                     onContextMenu={openContextMenu}
+                    onDoubleClick={() => {
+                      const word = window.getSelection()?.toString().trim() ?? '';
+                      if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
+                      else setHlWord('');
+                    }}
+                    onKeyDown={e => { if (e.key === 'Escape') setHlWord(''); }}
+                    tabIndex={-1}
                     style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
                   >
                     {(highlightedLines || []).map((lineToks, i) => (
                       <div key={i} style={{ display: 'flex' }}>
                         <span style={{ width: 44, minWidth: 44, color: 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
                         <span style={{ whiteSpace: 'pre', paddingLeft: 4 }}>
-                          {lineToks.map((tok, j) => {
-                            if (!tok.color) return tok.value;
-                            if (tok.color === SQL_COLORS.table) {
-                              return (
-                                <span key={j} className="sql-table-token" style={{ color: tok.color }}
-                                  title="Ctrl+Click: 테이블 상세 열기"
-                                  onClick={e => handleTableClick(e, tok, j, lineToks)}
-                                >{tok.value}</span>
-                              );
-                            }
-                            if (navigableCallableNames.has(tok.value.toUpperCase())) {
-                              return (
-                                <span key={j} className="sql-callable-token" style={{ color: tok.color }}
-                                  title="Ctrl+Click: 상세 열기"
-                                  onClick={e => handleCallableClick(e, tok.value)}
-                                >{tok.value}</span>
-                              );
-                            }
-                            return <span key={j} style={{ color: tok.color }}>{tok.value}</span>;
-                          })}
+                          {lineToks.map((tok, j) => renderTok(tok, j, lineToks))}
                         </span>
                       </div>
                     ))}
                   </pre>
                 </div>
-              )
-            )}
+              );
+            })()}
 
             {/* Compile result */}
             {compileResult && (
