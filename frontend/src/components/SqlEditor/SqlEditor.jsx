@@ -331,8 +331,11 @@ export default function SqlEditor({ tab }) {
     const ta = textareaRef.current;
     const pre = preRef.current;
     if (pre && ta) {
-      pre.scrollTop = ta.scrollTop;
-      pre.scrollLeft = ta.scrollLeft;
+      // Move the highlight layer with a transform instead of scrollTop.
+      // The textarea is the only real scroller; translating the <pre> keeps
+      // it pixel-locked to the textarea at any scroll position (scrollTop on
+      // an overflow:hidden element can desync).
+      pre.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
       scrollTopRef.current = ta.scrollTop;
       if (activeLineHlRef.current && activeLine !== null) {
         activeLineHlRef.current.style.top =
@@ -779,7 +782,8 @@ export default function SqlEditor({ tab }) {
           onClick={handlePreClick}
           style={{
             ...EDITOR_TEXT_STYLE,
-            position: 'absolute', inset: 0, overflow: 'hidden',
+            position: 'absolute', top: 0, left: 0,
+            minWidth: '100%', willChange: 'transform',
             color: 'var(--text-primary)',
             background: 'transparent', pointerEvents: 'none',
           }}
