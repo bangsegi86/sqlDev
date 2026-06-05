@@ -149,7 +149,7 @@ export default function SqlEditor({ tab }) {
   const [activeLine, setActiveLine] = useState(null);
   const activeLineHlRef = useRef(null);
   const scrollTopRef = useRef(0);
-  const LINE_HEIGHT = 13 * 1.6;  // must match pre fontSize * lineHeight
+  const LINE_HEIGHT = 21;        // integer px — must match pre/textarea lineHeight
   const EDITOR_PAD_TOP = 10;     // must match pre padding top
 
   function updateActiveLine() {
@@ -761,7 +761,7 @@ export default function SqlEditor({ tab }) {
           style={{
             position: 'absolute', inset: 0, overflow: 'hidden',
             margin: 0, padding: '10px 12px',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
             whiteSpace: 'pre', color: 'var(--text-primary)',
             background: 'transparent', pointerEvents: 'none',
           }}
@@ -771,7 +771,7 @@ export default function SqlEditor({ tab }) {
         {!sql && (
           <div style={{
             position: 'absolute', top: 0, left: 0, padding: '10px 12px',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
             color: 'var(--text-dim)', pointerEvents: 'none', userSelect: 'none',
           }}>
             SELECT * FROM TABLE_NAME;
@@ -818,7 +818,7 @@ export default function SqlEditor({ tab }) {
           style={{
             position: 'absolute', inset: 0,
             resize: 'none', border: 'none', borderRadius: 0, outline: 'none',
-            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: 1.6,
+            fontFamily: 'var(--code-font)', fontSize: 13, lineHeight: '21px',
             background: 'transparent', color: 'transparent',
             caretColor: 'var(--text-primary)', padding: '10px 12px',
             whiteSpace: 'pre', overflow: 'auto',
