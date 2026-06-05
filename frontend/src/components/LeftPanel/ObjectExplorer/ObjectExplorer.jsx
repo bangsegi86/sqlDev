@@ -132,6 +132,16 @@ export default function ObjectExplorer() {
       .finally(() => setLoading(l => ({ ...l, [key]: false })));
   }
 
+  function refreshObjects(schema, type) {
+    const key = `${activeConnectionId}-${schema}-${type}`;
+    setObjects(o => { const next = { ...o }; delete next[key]; return next; });
+    setLoading(l => ({ ...l, [key]: true }));
+    api.getObjects(activeConnectionId, schema, type)
+      .then(list => setObjects(o => ({ ...o, [key]: list })))
+      .catch(() => setObjects(o => ({ ...o, [key]: [] })))
+      .finally(() => setLoading(l => ({ ...l, [key]: false })));
+  }
+
   const handleSchemaClick = useCallback((schema) => {
     const nodeId = `${activeConnectionId}-${schema}`;
     dispatch({ type: 'TOGGLE_NODE', payload: nodeId });
@@ -402,6 +412,11 @@ export default function ObjectExplorer() {
               </div>
             ) : null;
           })()}
+          <div className="ctx-menu-item" onClick={() => {
+            refreshObjects(ctxMenu.schema, ctxMenu.type);
+            setCtxMenu(null);
+          }}>↻ 새로고침</div>
+          <div className="ctx-menu-sep" />
           <div className="ctx-menu-item" onClick={() => {
             makeObjectClickHandler(ctxMenu.schema)(ctxMenu.type, ctxMenu.name);
             setCtxMenu(null);
