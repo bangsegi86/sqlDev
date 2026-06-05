@@ -65,13 +65,15 @@ export default function SourceDetail({ tab }) {
     [acItems]
   );
 
-  // Load object list for schema (PROCEDURE + FUNCTION only needed here)
+  const NAV_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION'];
+
+  // Load object list for schema — TABLE/VIEW needed for right-click nav, PROCEDURE/FUNCTION for underline
   const loadAcItems = useCallback(async () => {
     if (!connId || !schema) return [];
     if (acSchemaRef.current === `${connId}:${schema}` && acItems.length > 0) return acItems;
     try {
       const results = await Promise.all(
-        CALLABLE_TYPES.map(type =>
+        NAV_TYPES.map(type =>
           api.getObjects(connId, schema, type)
             .then(names => names.map(n => ({ name: n, type })))
             .catch(() => [])
@@ -83,6 +85,13 @@ export default function SourceDetail({ tab }) {
       return flat;
     } catch { return []; }
   }, [connId, schema]);
+
+  // Eagerly load nav items so right-click works without Ctrl being pressed first
+  useEffect(() => {
+    acSchemaRef.current = null;
+    setAcItems([]);
+    loadAcItems();
+  }, [connId, schema]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ctrl key tracking — toggles ctrl-mode class on <pre>
   useEffect(() => {
@@ -405,8 +414,8 @@ export default function SourceDetail({ tab }) {
         if (up && acItems.length > 0) {
           const found = acItems.find(it => it.name.toUpperCase() === up);
           if (found) {
-            const typeLabel = { PROCEDURE: '프로시저', FUNCTION: '함수' };
-            const typeIcon  = { PROCEDURE: '⚙', FUNCTION: 'ƒ' };
+            const typeLabel = { TABLE: '테이블', VIEW: '뷰', PROCEDURE: '프로시저', FUNCTION: '함수' };
+            const typeIcon  = { TABLE: '🗃', VIEW: '👁', PROCEDURE: '⚙', FUNCTION: 'ƒ' };
             navItems.push({
               icon: typeIcon[found.type] || '📄',
               label: `${typeLabel[found.type] || found.type} 열기: ${found.name}`,

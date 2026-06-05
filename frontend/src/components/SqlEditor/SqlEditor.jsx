@@ -250,11 +250,12 @@ export default function SqlEditor({ tab }) {
     } catch { return []; }
   }, [connId, schema]);
 
-  // Invalidate cache when schema changes
+  // Reset cache and eagerly reload when connection/schema changes
   useEffect(() => {
     acSchemaRef.current = null;
     setAcItems([]);
-  }, [connId, schema]);
+    loadAcItems();
+  }, [connId, schema]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const navigableNames = useMemo(
     () => new Set(acItems.map(it => it.name.toUpperCase())),
