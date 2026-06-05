@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../api/client.js';
 
-// Replace :VALUE placeholder with the word under cursor (single-quoted string literal)
 function buildQuery(query, word) {
   if (!word) return query;
   const escaped = word.replace(/'/g, "''");
@@ -26,7 +25,7 @@ export default function CodeLookupPopup({ def, word, connId, schema, x, y, onClo
       .finally(() => setLoading(false));
   }, [finalQuery, connId]);
 
-  // Position: place popup near click, avoid viewport overflow
+  // Initial position: place popup near click, avoid viewport overflow
   const [pos, setPos] = useState({ left: x, top: y + 6 });
   useEffect(() => {
     const el = popupRef.current;
@@ -41,9 +40,38 @@ export default function CodeLookupPopup({ def, word, connId, schema, x, y, onClo
     setPos({ left, top });
   }, [x, y]);
 
-  // Close on outside mousedown
+  // Drag state
+  const dragRef = useRef(null); // { startX, startY, initLeft, initTop }
+
+  function onHeaderMouseDown(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, initLeft: pos.left, initTop: pos.top };
+
+    function onMove(ev) {
+      const { startX, startY, initLeft, initTop } = dragRef.current;
+      const el = popupRef.current;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const pw = el ? el.offsetWidth  : 420;
+      const ph = el ? el.offsetHeight : 340;
+      const left = Math.max(0, Math.min(vw - pw, initLeft + ev.clientX - startX));
+      const top  = Math.max(0, Math.min(vh - ph, initTop  + ev.clientY - startY));
+      setPos({ left, top });
+    }
+    function onUp() {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // Close on outside mousedown (skip when dragging)
   useEffect(() => {
     function handler(e) {
+      if (dragRef.current) return;
       if (popupRef.current && !popupRef.current.contains(e.target)) onClose();
     }
     document.addEventListener('mousedown', handler);
@@ -72,12 +100,15 @@ export default function CodeLookupPopup({ def, word, connId, schema, x, y, onClo
         fontSize: 12,
       }}
     >
-      {/* Header */}
-      <div style={{
-        padding: '7px 12px', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
+      {/* Header — drag handle */}
+      <div
+        onMouseDown={onHeaderMouseDown}
+        style={{
+          padding: '7px 12px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexShrink: 0, cursor: 'move', userSelect: 'none',
+        }}
+      >
         <span style={{ fontWeight: 600, fontSize: 13 }}>
           📖 {def.label}
           {hasFilter && (
@@ -87,6 +118,7 @@ export default function CodeLookupPopup({ def, word, connId, schema, x, y, onClo
           )}
         </span>
         <button
+          onMouseDown={e => e.stopPropagation()}
           onClick={onClose}
           style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
         >×</button>
