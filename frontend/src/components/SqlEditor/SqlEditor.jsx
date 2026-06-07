@@ -13,6 +13,7 @@ import CodeDictModal from './CodeDictModal.jsx';
 import CodeLookupPopup from './CodeLookupPopup.jsx';
 import { useCodeLookup, getRawWordAtPos, patternMatches } from '../../hooks/useCodeLookup.js';
 import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
+import { exportCSV, exportExcel } from '../../utils/exportData.js';
 
 const LIMIT = 200;
 // Object types to include in autocomplete
@@ -635,6 +636,13 @@ export default function SqlEditor({ tab }) {
 
   const hasResult = resultCols.length > 0 || execMsg || loading;
 
+  // Derive a download base-name from the FROM table in the last statement
+  function exportBaseName() {
+    const m = /\bFROM\s+([\w$#.]+)/i.exec(lastStmt || '');
+    const tbl = m ? m[1].split('.').pop() : '';
+    return tbl || 'query_result';
+  }
+
   const tabBtn = (mode, label) => (
     <button
       onClick={() => setResultMode(mode)}
@@ -935,6 +943,22 @@ export default function SqlEditor({ tab }) {
                         {hasMore && (
                           <span style={{ color: 'var(--accent)', fontSize: 10 }}>
                             ↓ 스크롤하거나 버튼으로 추가 로드
+                          </span>
+                        )}
+                        {resultCols.length > 0 && (
+                          <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                            <button
+                              className="btn-secondary"
+                              title="현재 로드된 결과를 CSV 파일로 저장 (UTF-8)"
+                              style={{ padding: '1px 8px', fontSize: 10 }}
+                              onClick={() => exportCSV(resultCols, allRows, exportBaseName())}
+                            >⬇ CSV</button>
+                            <button
+                              className="btn-secondary"
+                              title="현재 로드된 결과를 엑셀 파일(.xls)로 저장"
+                              style={{ padding: '1px 8px', fontSize: 10 }}
+                              onClick={() => exportExcel(resultCols, allRows, exportBaseName())}
+                            >⬇ Excel</button>
                           </span>
                         )}
                       </>
