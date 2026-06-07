@@ -18,6 +18,7 @@ import { addHistory } from '../../utils/queryHistory.js';
 import QueryHistoryModal from './QueryHistoryModal.jsx';
 
 const LIMIT = 200;
+const findBtnStyle = { padding: '3px 7px', fontSize: 11, minWidth: 28 };
 // Object types to include in autocomplete
 const AC_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'SEQUENCE'];
 
@@ -54,6 +55,32 @@ function getStatementAtCursor(sql, cursorPos) {
     if (text) return text;
   }
   return sql.trim().replace(/;+\s*$/, '');
+}
+
+// Find all match ranges of `query` within `text`
+function findMatches(text, query, { caseSensitive, useRegex }) {
+  if (!query) return [];
+  const res = [];
+  if (useRegex) {
+    let re;
+    try { re = new RegExp(query, caseSensitive ? 'g' : 'gi'); } catch { return []; }
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      res.push({ start: m.index, end: m.index + m[0].length });
+      if (m.index === re.lastIndex) re.lastIndex++;   // avoid zero-width loop
+      if (res.length > 10000) break;
+    }
+  } else {
+    const hay = caseSensitive ? text : text.toLowerCase();
+    const needle = caseSensitive ? query : query.toLowerCase();
+    let i = 0;
+    while ((i = hay.indexOf(needle, i)) !== -1) {
+      res.push({ start: i, end: i + needle.length });
+      i += needle.length || 1;
+      if (res.length > 10000) break;
+    }
+  }
+  return res;
 }
 
 // Extract the word being typed at cursor position (alphanumeric + _ + $)
@@ -142,6 +169,16 @@ export default function SqlEditor({ tab }) {
   const [aliasOpen, setAliasOpen] = useState(false);
   const [aliasMsg, setAliasMsg] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Find & Replace
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [findCase, setFindCase] = useState(false);
+  const [findRegex, setFindRegex] = useState(false);
+  const [matchIdx, setMatchIdx] = useState(0);
+  const findInputRef = useRef(null);
+  const editorScrollRef = useRef(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
 
@@ -178,6 +215,84 @@ export default function SqlEditor({ tab }) {
   // Line-number gutter — width grows with digit count
   const lineCount = useMemo(() => sql.split('\n').length, [sql]);
   const gutterW = Math.max(String(lineCount).length, 2) * 8 + 16;
+
+  // Find & Replace — recompute matches when query/text/options change
+  const matches = useMemo(
+    () => findMatches(sql, findText, { caseSensitive: findCase, useRegex: findRegex }),
+    [sql, findText, findCase, findRegex]
+  );
+  useEffect(() => { setMatchIdx(0); }, [findText, findCase, findRegex]);
+
+  function scrollToPos(pos) {
+    const sc = editorScrollRef.current;
+    if (!sc) return;
+    const line = sql.slice(0, pos).split('\n').length - 1;
+    const top = EDITOR_PAD_TOP + line * EDITOR_LINE_HEIGHT;
+    if (top < sc.scrollTop + 20 || top > sc.scrollTop + sc.clientHeight - 40) {
+      sc.scrollTop = Math.max(0, top - sc.clientHeight / 2);
+    }
+  }
+
+  function gotoMatch(idx) {
+    const m = matches[idx];
+    if (!m) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(m.start, m.end);
+    scrollToPos(m.start);
+    requestAnimationFrame(updateActiveLine);
+  }
+
+  function nextMatch() {
+    if (!matches.length) return;
+    const i = (matchIdx + 1) % matches.length;
+    setMatchIdx(i); gotoMatch(i);
+  }
+  function prevMatch() {
+    if (!matches.length) return;
+    const i = (matchIdx - 1 + matches.length) % matches.length;
+    setMatchIdx(i); gotoMatch(i);
+  }
+
+  function replaceOne() {
+    const m = matches[matchIdx];
+    if (!m) return;
+    const next = sql.slice(0, m.start) + replaceText + sql.slice(m.end);
+    setSql(next);
+    setHighlightedSql(renderHighlighted(next, navigableNames, ''));
+    const caret = m.start + replaceText.length;
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(caret, caret); }
+      scrollToPos(caret);
+    });
+  }
+
+  function replaceAll() {
+    if (!matches.length) return;
+    let result = '', last = 0;
+    for (const m of matches) { result += sql.slice(last, m.start) + replaceText; last = m.end; }
+    result += sql.slice(last);
+    const count = matches.length;
+    setSql(result);
+    setHighlightedSql(renderHighlighted(result, navigableNames, ''));
+    setAliasMsg(`${count}건 치환됨`);
+    setTimeout(() => setAliasMsg(''), 2500);
+  }
+
+  function openFind(withReplace) {
+    const ta = textareaRef.current;
+    const selected = ta && ta.selectionStart !== ta.selectionEnd
+      ? sql.slice(ta.selectionStart, ta.selectionEnd) : '';
+    if (selected && !selected.includes('\n')) setFindText(selected);
+    setFindOpen(true);
+    requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
+  }
+  function closeFind() {
+    setFindOpen(false);
+    textareaRef.current?.focus();
+  }
 
   function updateActiveLine() {
     const ta = textareaRef.current;
@@ -441,6 +556,14 @@ export default function SqlEditor({ tab }) {
   }
 
   function handleKeyDown(e) {
+    // Find / Replace
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+      e.preventDefault(); openFind(false); return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H')) {
+      e.preventDefault(); openFind(true); return;
+    }
+
     // Autocomplete trigger: Ctrl+Space
     if (e.ctrlKey && e.key === ' ') {
       e.preventDefault();
@@ -664,7 +787,7 @@ export default function SqlEditor({ tab }) {
   );
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       {/* Toolbar */}
       <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
         <button className="btn-success" onClick={execute} disabled={loading} style={{ padding: '3px 12px' }}>
@@ -761,9 +884,59 @@ export default function SqlEditor({ tab }) {
         </span>
       </div>
 
+      {/* Find & Replace bar — absolute overlay, does not shift layout */}
+      {findOpen && (
+        <div
+          style={{
+            position: 'absolute', top: 40, right: 16, zIndex: 50,
+            background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 340,
+          }}
+          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFind(); } }}
+        >
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              ref={findInputRef}
+              placeholder="찾기"
+              value={findText}
+              onChange={e => setFindText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? prevMatch() : nextMatch(); } }}
+              style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none', fontFamily: 'var(--code-font)' }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', minWidth: 56, textAlign: 'center' }}>
+              {matches.length ? `${matchIdx + 1}/${matches.length}` : '0/0'}
+            </span>
+            <button className="btn-secondary" style={findBtnStyle} title="이전 (Shift+Enter)" onClick={prevMatch} disabled={!matches.length}>▲</button>
+            <button className="btn-secondary" style={findBtnStyle} title="다음 (Enter)" onClick={nextMatch} disabled={!matches.length}>▼</button>
+            <button
+              className="btn-secondary" style={{ ...findBtnStyle, background: findCase ? 'var(--accent)' : undefined, color: findCase ? '#06283a' : undefined }}
+              title="대소문자 구분" onClick={() => setFindCase(v => !v)}
+            >Aa</button>
+            <button
+              className="btn-secondary" style={{ ...findBtnStyle, background: findRegex ? 'var(--accent)' : undefined, color: findRegex ? '#06283a' : undefined }}
+              title="정규식" onClick={() => setFindRegex(v => !v)}
+            >.*</button>
+            <button style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 14 }} title="닫기 (Esc)" onClick={closeFind}>✕</button>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              placeholder="바꾸기"
+              value={replaceText}
+              onChange={e => setReplaceText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); replaceOne(); } }}
+              style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none', fontFamily: 'var(--code-font)' }}
+            />
+            <button className="btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={replaceOne} disabled={!matches.length}>바꿈</button>
+            <button className="btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={replaceAll} disabled={!matches.length}>모두 바꿈</button>
+          </div>
+        </div>
+      )}
+
       {/* Editor — outer div scrolls; pre + textarea are both inside so they
           move together with zero sync code. This eliminates all drift. */}
       <div
+        ref={editorScrollRef}
         style={{
           position: 'relative', height: `${splitPos}%`,
           overflow: 'auto', background: 'var(--bg-primary)',
