@@ -14,6 +14,8 @@ import CodeLookupPopup from './CodeLookupPopup.jsx';
 import { useCodeLookup, getRawWordAtPos, patternMatches } from '../../hooks/useCodeLookup.js';
 import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
 import { exportCSV, exportExcel } from '../../utils/exportData.js';
+import { addHistory } from '../../utils/queryHistory.js';
+import QueryHistoryModal from './QueryHistoryModal.jsx';
 
 const LIMIT = 200;
 // Object types to include in autocomplete
@@ -139,6 +141,7 @@ export default function SqlEditor({ tab }) {
   const [planAnalysis, setPlanAnalysis] = useState(null);
   const [aliasOpen, setAliasOpen] = useState(false);
   const [aliasMsg, setAliasMsg] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
 
@@ -526,12 +529,14 @@ export default function SqlEditor({ tab }) {
     setLastStmt(stmt);
     setResultMode('result');
 
+    const connName = state.connections.find(c => c.id === connId)?.name;
     try {
       const r = await api.executeQuery(connId, stmt, schema, 1, LIMIT);
       if (r.message) {
         setExecMsg(r.message);
         setExecTime(r.executionTime);
         dispatch({ type: 'SET_STATUS', payload: `${r.message} | ${r.executionTime}ms` });
+        addHistory({ sql: stmt, connName, schema, ok: true, rowCount: null, ms: r.executionTime });
       } else {
         const loaded = r.rows?.length ?? 0;
         setResultCols(r.columns || []);
@@ -546,10 +551,12 @@ export default function SqlEditor({ tab }) {
           : `${loaded.toLocaleString()}행 로드${r.hasMore ? ' (더 있음)' : ''} | ${r.executionTime}ms`;
         dispatch({ type: 'SET_STATUS', payload: statusMsg });
         setExecTime(r.executionTime);
+        addHistory({ sql: stmt, connName, schema, ok: true, rowCount: r.total ?? loaded, ms: r.executionTime });
       }
     } catch (e) {
       setError(e.message);
       dispatch({ type: 'SET_STATUS', payload: `Error: ${e.message}` });
+      addHistory({ sql: stmt, connName, schema, ok: false });
     } finally {
       setLoading(false);
     }
@@ -736,6 +743,12 @@ export default function SqlEditor({ tab }) {
           style={{ padding: '3px 10px' }}
           onClick={() => setCodeDictOpen(true)}
         >📚 코드 사전</button>
+        <button
+          className="btn-secondary"
+          title="이전에 실행한 쿼리 목록"
+          style={{ padding: '3px 10px' }}
+          onClick={() => setHistoryOpen(true)}
+        >🕘 히스토리</button>
 
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -999,6 +1012,23 @@ export default function SqlEditor({ tab }) {
       </div>
 
       {aliasOpen && <AliasOptionsModal onClose={() => setAliasOpen(false)} />}
+
+      {historyOpen && (
+        <QueryHistoryModal
+          onClose={() => setHistoryOpen(false)}
+          onPick={picked => {
+            setSql(prev => {
+              const next = prev.trim() ? prev.replace(/\s*$/, '') + '\n\n' + picked : picked;
+              setHighlightedSql(renderHighlighted(next, navigableNames, ''));
+              requestAnimationFrame(() => {
+                const ta = textareaRef.current;
+                if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = next.length; }
+              });
+              return next;
+            });
+          }}
+        />
+      )}
 
       {/* SQL right-click context menu */}
       {sqlCtxMenu && (() => {
