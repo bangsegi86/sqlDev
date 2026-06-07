@@ -171,6 +171,10 @@ export default function SqlEditor({ tab }) {
   const LINE_HEIGHT = EDITOR_LINE_HEIGHT;
   const EDITOR_PAD_TOP = 10;
 
+  // Line-number gutter — width grows with digit count
+  const lineCount = useMemo(() => sql.split('\n').length, [sql]);
+  const gutterW = Math.max(String(lineCount).length, 2) * 8 + 16;
+
   function updateActiveLine() {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -745,8 +749,33 @@ export default function SqlEditor({ tab }) {
         }}
         onScroll={() => { if (acOpen) closeAutocomplete(); }}
       >
-        {/* Content wrapper — grows with the <pre> so the outer div scrolls it */}
-        <div style={{ position: 'relative', minWidth: 'max-content', minHeight: '100%' }}>
+        {/* Content wrapper — flex row: [gutter][editor area]. The gutter sticks
+            to the left edge during horizontal scroll; the editor area grows with
+            the <pre> so the outer div scrolls it. */}
+        <div style={{ position: 'relative', minWidth: 'max-content', minHeight: '100%', display: 'flex' }}>
+
+          {/* Line-number gutter — sticky so it stays pinned while scrolling right */}
+          <div style={{
+            position: 'sticky', left: 0, zIndex: 3,
+            flexShrink: 0, width: gutterW,
+            background: 'var(--bg-primary)',
+            borderRight: '1px solid var(--border)',
+            paddingTop: EDITOR_PAD_TOP,
+            fontFamily: 'var(--code-font)', fontSize: EDITOR_FONT_SIZE,
+            lineHeight: `${LINE_HEIGHT}px`,
+            textAlign: 'right', userSelect: 'none', pointerEvents: 'none',
+          }}>
+            {Array.from({ length: lineCount }, (_, i) => (
+              <div key={i} style={{
+                height: LINE_HEIGHT, paddingRight: 8,
+                color: i === activeLine ? 'var(--accent-bright)' : 'var(--text-dim)',
+                fontWeight: i === activeLine ? 700 : 400,
+              }}>{i + 1}</div>
+            ))}
+          </div>
+
+          {/* Editor area — holds the highlight, input, and active-line layers */}
+          <div style={{ position: 'relative', minWidth: 'max-content', flex: '1 0 auto' }}>
 
           {/* Active line highlight — inside the scroll container, so no offset needed */}
           {activeLine !== null && (
@@ -848,6 +877,7 @@ export default function SqlEditor({ tab }) {
               onDismiss={closeAutocomplete}
             />
           )}
+          </div>
         </div>
       </div>
 
