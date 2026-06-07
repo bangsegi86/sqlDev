@@ -17,11 +17,17 @@
     height: 100vh; display: flex; flex-direction: column;
   }
   header {
-    padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+    padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
     display: flex; align-items: center; gap: 12px; flex-shrink: 0;
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 700; }
   header .logo { font-size: 22px; }
+  .bg-badge {
+    font-size: 11px; background: rgba(79,193,255,.13); color: var(--accent);
+    border: 1px solid rgba(79,193,255,.3); border-radius: 4px; padding: 2px 8px; white-space: nowrap;
+  }
+  button.shutdown { background: #2a1818; border-color: #6b2020; color: #ff8a8a; }
+  button.shutdown:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; filter: none; }
   .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
   .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
   .dot.off { background: var(--red); }
@@ -75,9 +81,14 @@
   <header>
     <span class="logo">🗄️</span>
     <h1>SQLDev 서버 관리자</h1>
-    <span style="margin-left:auto; display:flex; align-items:center; gap:8px; font-size:13px;">
-      <span id="hdrDot" class="dot off"></span>
-      <span id="hdrText" style="color:var(--dim)">확인 중…</span>
+    <span class="bg-badge">⬡ 백그라운드 실행 중</span>
+    <span style="margin-left:auto; display:flex; align-items:center; gap:12px; font-size:13px;">
+      <span style="display:flex; align-items:center; gap:8px;">
+        <span id="hdrDot" class="dot off"></span>
+        <span id="hdrText" style="color:var(--dim)">확인 중…</span>
+      </span>
+      <button class="shutdown" id="btnShutdown" style="padding:6px 14px; font-size:12px;"
+        title="관리자와 앱 서버를 모두 종료합니다">⏻ 관리자 종료</button>
     </span>
   </header>
 
@@ -108,7 +119,17 @@
       <div class="card urls">
         <div class="kv"><span>접속 주소</span></div>
         <div style="margin-top:6px"><a id="appLink" href="#" target="_blank">열기 →</a></div>
+        <div id="netLinks" style="margin-top:4px"></div>
         <div class="hint">같은 네트워크의 다른 PC에서는<br><span class="mono">http://&lt;이 PC의 IP&gt;:포트</span> 로 접속합니다.</div>
+      </div>
+
+      <div class="card" style="background:rgba(79,193,255,.05); border-color:rgba(79,193,255,.2);">
+        <div style="font-size:12px; color:var(--accent); font-weight:700; margin-bottom:6px;">ℹ 백그라운드 서비스</div>
+        <div style="font-size:12px; color:var(--dim); line-height:1.6;">
+          이 창(브라우저 탭)을 닫아도 관리자와 앱 서버는 계속 실행됩니다.<br>
+          다시 열려면 <span class="mono">start-manager.bat</span> 을 실행하세요.<br>
+          완전히 종료하려면 <b>⏻ 관리자 종료</b> 버튼을 누르세요.
+        </div>
       </div>
 
       <div class="card">
@@ -177,7 +198,7 @@
   function render(s) {
     // 헤더
     setDot($('hdrDot'), s.running ? 'on' : 'off');
-    $('hdrText').textContent = s.running ? '실행 중' : '중지됨';
+    $('hdrText').textContent = s.running ? '앱 실행 중' : '앱 중지됨';
     $('hdrText').style.color = s.running ? 'var(--green)' : 'var(--dim)';
     // 상태 카드
     setDot($('stDot'), s.running ? 'on' : (s.lastExit && s.lastExit.code ? 'warn' : 'off'));
@@ -191,10 +212,16 @@
     $('btnRestart').disabled = !s.running;
     $('btnBuild').disabled = s.building;
     $('btnBuild').textContent = s.building ? '⏳  빌드 중…' : '🔨  프론트엔드 빌드';
-    // 링크
+    // 접속 링크
     const link = $('appLink');
     link.href = 'http://localhost:' + s.appPort + '/';
     link.textContent = 'http://localhost:' + s.appPort + '/  열기 →';
+    // 네트워크 IP 링크
+    if (s.networkIPs && s.networkIPs.length) {
+      $('netLinks').innerHTML = s.networkIPs.map(ip =>
+        '<div style="margin-top:3px"><a href="http://' + ip + ':' + s.appPort + '/" target="_blank" style="color:var(--dim);font-family:var(--mono);font-size:12px;">http://' + ip + ':' + s.appPort + '/</a></div>'
+      ).join('');
+    }
     // 점검
     setDot($('ckMod'), s.hasNodeModules ? 'on' : 'off');
     setDot($('ckBuild'), s.hasBuild ? 'on' : 'off');
@@ -215,6 +242,20 @@
   };
   $('btnBuild').onclick = async () => { toast((await api('build', 'POST')).message); refresh(); };
   $('btnClear').onclick = () => { logEl.innerHTML = ''; };
+  $('btnShutdown').onclick = async () => {
+    if (!confirm('⏻ 관리자를 종료합니다.\n\n앱 서버도 함께 종료되며, 다시 시작하려면 start-manager.bat 을 실행해야 합니다.\n\n계속하시겠습니까?')) return;
+    $('btnShutdown').disabled = true;
+    $('btnShutdown').textContent = '종료 중…';
+    try {
+      await api('shutdown', 'POST');
+      toast('관리자가 종료되었습니다. 이 창을 닫으세요.');
+      setTimeout(() => {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;color:var(--dim)"><div style="font-size:48px">⏻</div><div style="font-size:18px;color:var(--text)">관리자가 종료되었습니다</div><div style="font-size:13px">다시 시작하려면 <b>start-manager.bat</b> 을 실행하세요.</div></div>';
+      }, 1200);
+    } catch {
+      toast('종료 요청을 보냈습니다.');
+    }
+  };
 
   // 로그: 히스토리 로드 후 SSE 스트림 연결
   (async () => {

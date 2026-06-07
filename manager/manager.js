@@ -15,6 +15,7 @@ import { spawn, exec } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, readFileSync } from 'fs';
+import { networkInterfaces } from 'os';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, '..');
@@ -121,6 +122,16 @@ function runBuild() {
   return { ok: true, message: '빌드를 시작했습니다. 로그를 확인하세요.' };
 }
 
+function getNetworkIPs() {
+  const ips = [];
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) ips.push(iface.address);
+    }
+  }
+  return ips;
+}
+
 function status() {
   return {
     running: isRunning(),
@@ -132,6 +143,7 @@ function status() {
     hasBuild: existsSync(DIST_INDEX),
     hasNodeModules: existsSync(BACKEND_MODULES),
     managerPort: MANAGER_PORT,
+    networkIPs: getNetworkIPs(),
   };
 }
 
@@ -196,6 +208,13 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && path === '/api/build') return sendJson(res, runBuild());
 
+  if (req.method === 'POST' && path === '/api/shutdown') {
+    pushLog('[관리자] 관리자 종료 요청을 받았습니다.', 'sys');
+    sendJson(res, { ok: true, message: '관리자를 종료합니다.' });
+    setTimeout(shutdown, 600);
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('Not found');
 });
@@ -223,14 +242,25 @@ function openBrowser(targetUrl) {
   run(0);
 }
 
+const NO_OPEN = process.env.NO_OPEN || process.argv.includes('--no-open');
+
+server.on('error', e => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`[관리자] 포트 ${MANAGER_PORT} 이미 사용 중 — 다른 인스턴스가 실행 중입니다.`);
+    if (!NO_OPEN) openBrowser(`http://localhost:${MANAGER_PORT}`);
+    process.exit(0);
+  }
+  throw e;
+});
+
 server.listen(MANAGER_PORT, () => {
   const url = `http://localhost:${MANAGER_PORT}`;
   console.log('═══════════════════════════════════════════════');
-  console.log('  SQLDev 서버 관리자');
+  console.log('  SQLDev 서버 관리자 (백그라운드 실행 중)');
   console.log(`  제어판: ${url}`);
-  console.log('  (이 창은 닫지 마세요. 닫으면 관리자가 종료됩니다.)');
+  console.log('  종료하려면 제어판의 [관리자 종료] 버튼을 사용하세요.');
   console.log('═══════════════════════════════════════════════');
-  if (!process.env.NO_OPEN) openBrowser(url);
+  if (!NO_OPEN) openBrowser(url);
 });
 
 // 관리자 종료 시 앱 서버도 함께 종료 (SIGTERM을 무시하므로 강제 종료)
