@@ -11,16 +11,22 @@ import { useCopy } from '../../utils/clipboard.js';
 
 // Isolated copy button — owns its own state so re-renders never touch the source view.
 // Falls back to a modal textarea when the async Clipboard API is unavailable (HTTP/LAN).
+//
+// IMPORTANT: the fallback text is stored in a ref (not state) and written to the
+// textarea via direct DOM assignment, so React never puts a 100KB+ string into
+// the Virtual DOM — that was the root cause of the renderer crash.
 function CopyBtn({ getText }) {
-  const [copy, copied, fallbackText, clearFallback] = useCopy();
+  const [copy, copied, showFallback, clearFallback, fallbackTextRef] = useCopy();
   const taRef = React.useRef(null);
 
   React.useEffect(() => {
-    if (fallbackText && taRef.current) {
+    if (showFallback && taRef.current) {
+      // Set value directly on the DOM node — never stored in React state.
+      taRef.current.value = fallbackTextRef.current;
       taRef.current.focus();
       taRef.current.select();
     }
-  }, [fallbackText]);
+  }, [showFallback]);
 
   return (
     <>
@@ -30,7 +36,7 @@ function CopyBtn({ getText }) {
         style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
       >{copied ? '✓ 복사됨' : '📋 복사'}</button>
 
-      {fallbackText && (
+      {showFallback && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.6)',
@@ -51,12 +57,15 @@ function CopyBtn({ getText }) {
               >✕</button>
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-              HTTP 환경에서는 브라우저 보안 정책으로 자동 복사가 제한됩니다. 텍스트가 선택되어 있습니다.
+              HTTP 환경에서는 자동 복사가 제한됩니다. 텍스트가 선택되어 있으니 Ctrl+C를 누르세요.
             </div>
+            {/* Uncontrolled textarea — value set imperatively in useEffect, never via React */}
             <textarea
               ref={taRef}
               readOnly
-              value={fallbackText}
+              spellCheck={false}
+              autoCorrect="off"
+              defaultValue=""
               style={{
                 width: '100%', height: '50vh', resize: 'vertical',
                 fontFamily: 'var(--code-font)', fontSize: 12,

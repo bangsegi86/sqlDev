@@ -1,43 +1,57 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
-// Copies text to clipboard using only the async Clipboard API.
-// document.execCommand('copy') is intentionally NOT used — it can crash
+// Clipboard write limit: skip the async API for very large text.
+// navigator.clipboard.writeText() can cause renderer crashes in some Chromium
+// builds when given large payloads — fall through to the modal for safety.
+const CLIPBOARD_API_LIMIT = 60_000; // ~60 KB
+
+// Returns true on success, false on failure.
+// document.execCommand('copy') is intentionally NOT used — it crashes
 // Chromium renderer processes when called with large text selections.
-//
-// Returns: { ok: true } on success, { ok: false, text } on failure so the
-// caller can show a fallback UI (e.g. a modal textarea for manual Ctrl+C).
 export async function copyText(text) {
-  if (!text) return { ok: false, text };
+  if (!text) return false;
 
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+  if (
+    text.length <= CLIPBOARD_API_LIMIT &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function'
+  ) {
     try {
       await navigator.clipboard.writeText(text);
-      return { ok: true };
+      return true;
     } catch {
-      // Clipboard API refused (permission denied, non-secure context, etc.)
+      // Permission denied, non-secure context, etc.
     }
   }
-  return { ok: false, text };
+  return false;
 }
 
-// React hook: returns [copy(text), state]
-// state = { copied: bool, fallbackText: string|null }
-// When fallbackText is non-null the caller should show a textarea modal.
+// React hook: returns [copy, copied, showFallback, clearFallback, fallbackTextRef]
+//
+// showFallback  — boolean; when true, show a "press Ctrl+C" modal
+// fallbackTextRef — { current: string }; set the textarea's .value from this
+//                  via a DOM ref (NOT via React state) to avoid re-rendering
+//                  with a huge string in the VDOM.
 export function useCopy() {
   const [copied, setCopied] = useState(false);
-  const [fallbackText, setFallbackText] = useState(null);
+  const [showFallback, setShowFallback] = useState(false);
+  const fallbackTextRef = useRef('');
 
   const copy = useCallback(async (text) => {
-    const result = await copyText(text);
-    if (result.ok) {
+    const ok = await copyText(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } else if (result.text) {
-      setFallbackText(result.text);
+    } else if (text) {
+      fallbackTextRef.current = text;
+      setShowFallback(true);
     }
   }, []);
 
-  const clearFallback = useCallback(() => setFallbackText(null), []);
+  const clearFallback = useCallback(() => {
+    setShowFallback(false);
+    fallbackTextRef.current = '';
+  }, []);
 
-  return [copy, copied, fallbackText, clearFallback];
+  return [copy, copied, showFallback, clearFallback, fallbackTextRef];
 }
