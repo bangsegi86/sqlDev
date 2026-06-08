@@ -75,32 +75,20 @@ function CopyBtn({ getText }) {
 
       {showFallback && (
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.55)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={clearFallback}>
-          <div style={{
-            background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '28px 32px', width: 340, textAlign: 'center',
-            display: 'flex', flexDirection: 'column', gap: 14,
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 36 }}>📋</div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-              Ctrl+C 를 눌러 복사하세요
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.7 }}>
-              소스({sizeKB} KB)가 준비됐습니다.<br/>
-              HTTP 환경에서는 자동 복사가 제한됩니다.
-            </div>
-            <button
-              style={{
-                padding: '6px 0', borderRadius: 5, cursor: 'pointer', fontSize: 12,
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                color: 'var(--text-secondary)',
-              }}
-              onClick={clearFallback}
-            >닫기 (Esc)</button>
-          </div>
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, background: 'var(--bg-panel)',
+          border: '1px solid var(--accent-bright)',
+          borderRadius: 8, padding: '10px 20px',
+          display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          fontSize: 13,
+        }}>
+          <span style={{ color: 'var(--accent-bright)', fontWeight: 700 }}>Ctrl+C</span>
+          <span style={{ color: 'var(--text-primary)' }}>를 눌러 복사하세요 ({sizeKB} KB)</span>
+          <button
+            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1 }}
+            onClick={clearFallback}
+          >✕</button>
         </div>
       )}
     </>
