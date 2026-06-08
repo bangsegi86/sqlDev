@@ -24,6 +24,18 @@ const LIMIT = 200;
 // Object types to include in autocomplete
 const AC_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'SEQUENCE'];
 
+function stripLeadingComments(sql) {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').trimStart();
+}
+
+function getStatementType(sql) {
+  const first = stripLeadingComments(sql.trim().replace(/;+\s*$/, ''))
+    .match(/^(\w+)/)?.[1]?.toUpperCase() || '';
+  if (first === 'SELECT' || first === 'WITH') return 'SELECT';
+  if (['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(first)) return 'DML';
+  return 'DDL';
+}
+
 // Splits sql by ';' that are not inside string literals.
 function splitStatements(sql) {
   const segs = [];
@@ -138,6 +150,11 @@ export default function SqlEditor({ tab }) {
   const [lastStmt, setLastStmt] = useState('');
   const [execMsg, setExecMsg] = useState('');
   const [execTime, setExecTime] = useState(null);
+
+  // DML transaction state (SQL editor)
+  const [dmlTxId, setDmlTxId] = useState(null);
+  const [dmlTxStatus, setDmlTxStatus] = useState('idle'); // idle | pending_commit | committing | rolling_back
+  const [dmlRowsAffected, setDmlRowsAffected] = useState(null);
 
   // Result view mode: 'result' | 'plan'
   const [resultMode, setResultMode] = useState('result');
@@ -602,10 +619,50 @@ export default function SqlEditor({ tab }) {
     }
   }
 
+  async function handleDmlCommit() {
+    if (!dmlTxId) return;
+    setDmlTxStatus('committing');
+    try {
+      await api.commitTransaction(connId, dmlTxId);
+      const connName = state.connections.find(c => c.id === connId)?.name;
+      addHistory({ sql: lastStmt, connName, connectionId: connId, schema, ok: true, rowCount: dmlRowsAffected });
+      setDmlTxId(null);
+      setDmlTxStatus('idle');
+      setDmlRowsAffected(null);
+      setExecMsg(`COMMIT 완료 — ${dmlRowsAffected}행 반영됨`);
+      dispatch({ type: 'SET_STATUS', payload: `COMMIT 완료 — ${dmlRowsAffected}행` });
+    } catch (e) {
+      setError(`COMMIT 실패: ${e.message}`);
+      setDmlTxStatus('pending_commit');
+    }
+  }
+
+  async function handleDmlRollback() {
+    if (!dmlTxId) return;
+    setDmlTxStatus('rolling_back');
+    try {
+      await api.rollbackTransaction(connId, dmlTxId);
+      setDmlTxId(null);
+      setDmlTxStatus('idle');
+      setDmlRowsAffected(null);
+      setExecMsg('ROLLBACK 완료 — 변경사항이 취소되었습니다');
+      dispatch({ type: 'SET_STATUS', payload: 'ROLLBACK 완료' });
+    } catch (e) {
+      setError(`ROLLBACK 실패: ${e.message}`);
+      setDmlTxStatus('pending_commit');
+    }
+  }
+
   async function execute() {
     if (!connId) { setError('연결을 선택하세요.'); return; }
+
+    // Block new execution while a DML transaction is open
+    if (dmlTxStatus === 'pending_commit') {
+      setError('열린 트랜잭션이 있습니다. COMMIT 또는 ROLLBACK 후 실행하세요.');
+      return;
+    }
+
     const ta = textareaRef.current;
-    // Prefer selected text; fall back to ';'-delimited statement at cursor
     const stmt = (ta && ta.selectionStart !== ta.selectionEnd)
       ? sql.slice(ta.selectionStart, ta.selectionEnd).trim()
       : getStatementAtCursor(sql, ta?.selectionStart ?? 0);
@@ -623,9 +680,47 @@ export default function SqlEditor({ tab }) {
     setExecTime(null);
     setLastStmt(stmt);
     setResultMode('result');
+    setDmlTxId(null);
+    setDmlTxStatus('idle');
+    setDmlRowsAffected(null);
 
     const connName = state.connections.find(c => c.id === connId)?.name;
+    const stmtType = getStatementType(stmt);
+    const start = Date.now();
+
     try {
+      // ── DML: begin transaction → execute → wait for COMMIT/ROLLBACK ──
+      if (stmtType === 'DML') {
+        let txId, rowsAffected;
+        try {
+          const tx = await api.beginTransaction(connId);
+          txId = tx.txId;
+          const r = await api.executeInTransaction(connId, txId, stmt, {});
+          rowsAffected = r.rowsAffected ?? 0;
+        } catch (txErr) {
+          // JDBC mode doesn't support transactions — fall back to direct execute
+          if (txErr.message?.includes('JDBC')) {
+            const r = await api.executeDml(connId, stmt, {});
+            const ms = Date.now() - start;
+            setExecMsg(`${r.rowsAffected ?? 0}행이 영향받았습니다 (자동 커밋)`);
+            setExecTime(ms);
+            dispatch({ type: 'SET_STATUS', payload: `${r.rowsAffected ?? 0}행 | ${ms}ms` });
+            addHistory({ sql: stmt, connName, connectionId: connId, schema, ok: true, rowCount: r.rowsAffected, ms });
+            return;
+          }
+          throw txErr;
+        }
+        const ms = Date.now() - start;
+        setDmlTxId(txId);
+        setDmlTxStatus('pending_commit');
+        setDmlRowsAffected(rowsAffected);
+        setExecMsg(`${rowsAffected}행이 영향받았습니다`);
+        setExecTime(ms);
+        dispatch({ type: 'SET_STATUS', payload: `${rowsAffected}행 (미커밋) | ${ms}ms` });
+        return;
+      }
+
+      // ── SELECT / DDL: existing path ──
       const r = await api.executeQuery(connId, stmt, schema, 1, LIMIT);
       if (r.message) {
         setExecMsg(r.message);
@@ -637,8 +732,6 @@ export default function SqlEditor({ tab }) {
         setResultCols(r.columns || []);
         setAllRows(r.rows || []);
         setTotal(r.total ?? null);
-        // Backend now returns hasMore directly (DBeaver-style probe row);
-        // fall back to the old total-based check for safety.
         setHasMore(r.hasMore ?? ((r.total ?? 0) > loaded));
         setNextPage(2);
         const statusMsg = r.total != null
@@ -1039,6 +1132,31 @@ export default function SqlEditor({ tab }) {
           </div>
         )}
 
+        {/* DML COMMIT / ROLLBACK panel */}
+        {dmlTxStatus === 'pending_commit' && (
+          <div style={{
+            background: 'rgba(255,200,60,0.08)', borderBottom: '2px solid rgba(255,200,60,0.5)',
+            padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 12, color: '#f0c070', fontWeight: 700 }}>
+              ⚠ 트랜잭션 진행 중 — {dmlRowsAffected}행 영향받음. 조회로 검증 후 결정하세요.
+            </span>
+            <button
+              onClick={handleDmlCommit}
+              disabled={dmlTxStatus !== 'pending_commit'}
+              style={{ padding: '3px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 3 }}
+            >✓ COMMIT</button>
+            <button
+              onClick={handleDmlRollback}
+              disabled={dmlTxStatus !== 'pending_commit'}
+              style={{ padding: '3px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#c62828', color: '#fff', border: 'none', borderRadius: 3 }}
+            >↩ ROLLBACK</button>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+              F5로 SELECT 조회 가능 · 새 DML 실행은 COMMIT/ROLLBACK 후 가능
+            </span>
+          </div>
+        )}
+
         {/* Result tab */}
         {resultMode === 'result' && (
           <>
@@ -1047,7 +1165,7 @@ export default function SqlEditor({ tab }) {
                 {!loading && (
                   <div style={{ padding: '3px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
                     {execMsg ? (
-                      <span>{execMsg}</span>
+                      <span style={{ color: dmlTxStatus === 'idle' && execMsg.includes('COMMIT') ? '#7ec87e' : execMsg.includes('ROLLBACK') ? 'var(--danger)' : 'var(--text-secondary)' }}>{execMsg}</span>
                     ) : (
                       <>
                         <span>
