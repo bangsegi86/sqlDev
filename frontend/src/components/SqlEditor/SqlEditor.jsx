@@ -16,6 +16,7 @@ import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
 import { exportCSV, exportExcel } from '../../utils/exportData.js';
 import { addHistory } from '../../utils/queryHistory.js';
 import QueryHistoryModal from './QueryHistoryModal.jsx';
+import QueryBookmarks from './QueryBookmarks.jsx';
 import FindBar from '../Common/FindBar.jsx';
 import { findMatches } from '../../utils/findReplace.js';
 
@@ -145,6 +146,7 @@ export default function SqlEditor({ tab }) {
   const [aliasOpen, setAliasOpen] = useState(false);
   const [aliasMsg, setAliasMsg] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
 
   // Find & Replace
   const [findOpen, setFindOpen] = useState(false);
@@ -629,7 +631,7 @@ export default function SqlEditor({ tab }) {
         setExecMsg(r.message);
         setExecTime(r.executionTime);
         dispatch({ type: 'SET_STATUS', payload: `${r.message} | ${r.executionTime}ms` });
-        addHistory({ sql: stmt, connName, schema, ok: true, rowCount: null, ms: r.executionTime });
+        addHistory({ sql: stmt, connName, connectionId: connId, schema, ok: true, rowCount: null, ms: r.executionTime });
       } else {
         const loaded = r.rows?.length ?? 0;
         setResultCols(r.columns || []);
@@ -644,12 +646,12 @@ export default function SqlEditor({ tab }) {
           : `${loaded.toLocaleString()}행 로드${r.hasMore ? ' (더 있음)' : ''} | ${r.executionTime}ms`;
         dispatch({ type: 'SET_STATUS', payload: statusMsg });
         setExecTime(r.executionTime);
-        addHistory({ sql: stmt, connName, schema, ok: true, rowCount: r.total ?? loaded, ms: r.executionTime });
+        addHistory({ sql: stmt, connName, connectionId: connId, schema, ok: true, rowCount: r.total ?? loaded, ms: r.executionTime });
       }
     } catch (e) {
       setError(e.message);
       dispatch({ type: 'SET_STATUS', payload: `Error: ${e.message}` });
-      addHistory({ sql: stmt, connName, schema, ok: false });
+      addHistory({ sql: stmt, connName, connectionId: connId, schema, ok: false });
     } finally {
       setLoading(false);
     }
@@ -842,6 +844,12 @@ export default function SqlEditor({ tab }) {
           style={{ padding: '3px 10px' }}
           onClick={() => setHistoryOpen(true)}
         >🕘 히스토리</button>
+        <button
+          className="btn-secondary"
+          title="자주 사용하는 쿼리 북마크"
+          style={{ padding: '3px 10px' }}
+          onClick={() => setBookmarksOpen(true)}
+        >★ 북마크</button>
 
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -1125,6 +1133,7 @@ export default function SqlEditor({ tab }) {
 
       {historyOpen && (
         <QueryHistoryModal
+          connectionId={connId}
           onClose={() => setHistoryOpen(false)}
           onPick={picked => {
             setSql(prev => {
@@ -1134,6 +1143,21 @@ export default function SqlEditor({ tab }) {
                 if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = next.length; }
               });
               return next;
+            });
+          }}
+        />
+      )}
+
+      {/* Query bookmarks modal */}
+      {bookmarksOpen && (
+        <QueryBookmarks
+          currentSql={sql}
+          onClose={() => setBookmarksOpen(false)}
+          onPick={picked => {
+            setSql(picked);
+            requestAnimationFrame(() => {
+              const ta = textareaRef.current;
+              if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = picked.length; }
             });
           }}
         />

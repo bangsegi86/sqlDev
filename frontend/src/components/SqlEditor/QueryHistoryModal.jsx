@@ -13,8 +13,8 @@ function timeAgo(ts) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export default function QueryHistoryModal({ onPick, onClose }) {
-  const [list, setList] = useState(() => loadHistory());
+export default function QueryHistoryModal({ onPick, onClose, connectionId }) {
+  const [list, setList] = useState(() => loadHistory(connectionId));
   const [filter, setFilter] = useState('');
 
   const f = filter.trim().toLowerCase();
@@ -40,7 +40,7 @@ export default function QueryHistoryModal({ onPick, onClose }) {
             style={{ marginLeft: 'auto', width: 200, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none' }}
           />
           <button className="btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }}
-            onClick={() => { setList(clearHistory()); }}>전체 삭제</button>
+            onClick={() => { setList(clearHistory(connectionId)); }}>전체 삭제</button>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 16 }}>✕</button>
         </div>
 
@@ -75,7 +75,7 @@ export default function QueryHistoryModal({ onPick, onClose }) {
                   onClick={() => { onPick(e.sql); onClose(); }}>불러오기</button>
                 <button style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13 }}
                   title="삭제"
-                  onClick={() => setList(removeHistory(e.ts))}>✕</button>
+                  onClick={() => setList(removeHistory(e.ts, connectionId))}>✕</button>
               </div>
             </div>
           ))}
