@@ -8,6 +8,18 @@ import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
+
+// Isolated component — only this tiny element re-renders on copy, never the 1900-line source
+function CopyBtn({ getText }) {
+  const [copy, copied] = useCopy();
+  return (
+    <button
+      className="btn-secondary"
+      onClick={() => copy(getText())}
+      style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
+    >{copied ? '✓ 복사됨' : '📋 복사'}</button>
+  );
+}
 import { useCodeLookup } from '../../hooks/useCodeLookup.js';
 import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
 import CodeLookupPopup from '../SqlEditor/CodeLookupPopup.jsx';
@@ -28,7 +40,7 @@ export default function SourceDetail({ tab }) {
   const [editedSource, setEditedSource] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [isFormatted, setIsFormatted] = useState(false);
-  const [copySource, sourceCopied] = useCopy();
+  // CopyBtn below owns the `copied` state — do NOT hoist it here
   const [formattedSource, setFormattedSource] = useState('');
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -378,11 +390,7 @@ export default function SourceDetail({ tab }) {
             )}
             {/* Top toolbar */}
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <button
-                className="btn-secondary"
-                onClick={() => copySource(editMode ? editedSource : (isFormatted ? formattedSource : source))}
-                style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
-              >{sourceCopied ? '✓ 복사됨' : '📋 복사'}</button>
+              <CopyBtn getText={() => editMode ? editedSource : (isFormatted ? formattedSource : source)} />
               {!editMode && (
                 <button
                   className={isFormatted ? 'btn-success' : 'btn-secondary'}
