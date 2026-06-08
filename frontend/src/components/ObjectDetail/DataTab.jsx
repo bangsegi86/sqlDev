@@ -130,28 +130,48 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     if (pendingChanges.length === 0) return;
     setTxStatus('executing');
     setTxResults([]);
+
+    // JDBC 모드: 트랜잭션 불가 → executeDml(autoCommit)로 폴백
+    let jdbcMode = false;
     let newTxId;
     try {
       const { txId: id } = await api.beginTransaction(connectionId);
       newTxId = id;
       setTxId(id);
     } catch (e) {
-      setTxStatus('idle');
-      alert(`트랜잭션 시작 실패: ${e.message}`);
-      return;
+      if (e.message.includes('JDBC')) {
+        jdbcMode = true;
+      } else {
+        setTxStatus('idle');
+        alert(`트랜잭션 시작 실패: ${e.message}`);
+        return;
+      }
     }
 
     const results = [];
     for (const change of pendingChanges) {
       try {
-        const r = await api.executeInTransaction(connectionId, newTxId, change.sql, change.binds);
+        let r;
+        if (jdbcMode) {
+          r = await api.executeDml(connectionId, change.sql, change.binds);
+        } else {
+          r = await api.executeInTransaction(connectionId, newTxId, change.sql, change.binds);
+        }
         results.push({ sql: change.sql, rowsAffected: r.rowsAffected });
       } catch (e) {
         results.push({ sql: change.sql, error: e.message });
       }
     }
     setTxResults(results);
-    setTxStatus('pending_commit');
+
+    if (jdbcMode) {
+      // autoCommit이므로 즉시 완료 처리
+      setPendingChanges([]);
+      setTxStatus('idle');
+      load();
+    } else {
+      setTxStatus('pending_commit');
+    }
   }
 
   async function handleCommit() {
