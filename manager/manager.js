@@ -110,8 +110,9 @@ function runBuild() {
   if (building) return { ok: false, message: '이미 빌드 중입니다.' };
   building = true;
   pushLog('[관리자] 프론트엔드 빌드 시작...', 'sys');
-  const npmCmd = IS_WIN ? 'npm.cmd' : 'npm';
-  const proc = spawn(npmCmd, ['run', 'build', '--prefix', 'frontend'], { cwd: ROOT });
+  const frontendDir = join(ROOT, 'frontend');
+  // shell:true → Windows 백그라운드 환경에서도 PATH의 npm을 정상적으로 찾음
+  const proc = spawn('npm', ['run', 'build'], { cwd: frontendDir, shell: true });
   proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => pushLog(l, 'out')));
   proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => pushLog(l, 'err')));
   proc.on('exit', code => {
