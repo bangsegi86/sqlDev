@@ -32,6 +32,7 @@ export const api = {
   },
   getTableDDL: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/ddl`),
   getTableReferences: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/references`),
+  getSchemaErd: (id, schema) => request(`/oracle/${id}/erd/${encodeURIComponent(schema)}`),
   getViewDDL: (id, schema, view) => request(`/oracle/${id}/views/${encodeURIComponent(schema)}/${encodeURIComponent(view)}/ddl`),
   getSource: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
   getObjectProperties: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}/properties`),

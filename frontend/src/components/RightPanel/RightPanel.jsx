@@ -5,6 +5,7 @@ import SqlEditor from '../SqlEditor/SqlEditor.jsx';
 import TableDetail from '../ObjectDetail/TableDetail.jsx';
 import SourceDetail from '../ObjectDetail/SourceDetail.jsx';
 import SequenceDetail from '../ObjectDetail/SequenceDetail.jsx';
+import ErdViewer from '../ObjectDetail/ErdViewer.jsx';
 
 export default function RightPanel() {
   const { state } = useApp();
@@ -67,5 +68,6 @@ function TabContent({ tab }) {
   if (tab.type === 'table') return <TableDetail tab={tab} />;
   if (tab.type === 'source') return <SourceDetail tab={tab} />;
   if (tab.type === 'sequence') return <SequenceDetail tab={tab} />;
+  if (tab.type === 'erd') return <ErdViewer tab={tab} />;
   return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Unknown tab type: {tab.type}</div>;
 }

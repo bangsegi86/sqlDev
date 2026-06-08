@@ -279,6 +279,69 @@ export async function getTableSpec(id, schema, tableName) {
   };
 }
 
+// Schema-wide ERD: tables (with columns, PK/FK flags) + FK relationships.
+export async function getSchemaErd(id, schema) {
+  const [colRes, pkRes, fkRes] = await Promise.all([
+    execute(id,
+      `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, COLUMN_ID
+       FROM ALL_TAB_COLUMNS WHERE OWNER = :schema ORDER BY TABLE_NAME, COLUMN_ID`,
+      { schema }),
+    execute(id,
+      `SELECT con.TABLE_NAME, cc.COLUMN_NAME
+       FROM ALL_CONSTRAINTS con
+       JOIN ALL_CONS_COLUMNS cc ON con.CONSTRAINT_NAME = cc.CONSTRAINT_NAME AND con.OWNER = cc.OWNER
+       WHERE con.OWNER = :schema AND con.CONSTRAINT_TYPE = 'P'`,
+      { schema }),
+    execute(id,
+      `SELECT c.TABLE_NAME AS CHILD_TABLE, cc.COLUMN_NAME AS CHILD_COLUMN,
+              rc.TABLE_NAME AS PARENT_TABLE, rcc.COLUMN_NAME AS PARENT_COLUMN,
+              c.CONSTRAINT_NAME
+       FROM ALL_CONSTRAINTS c
+       JOIN ALL_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME AND c.OWNER = cc.OWNER
+       JOIN ALL_CONSTRAINTS rc ON rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND rc.OWNER = c.R_OWNER
+       JOIN ALL_CONS_COLUMNS rcc ON rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME AND rcc.OWNER = rc.OWNER
+            AND rcc.POSITION = cc.POSITION
+       WHERE c.OWNER = :schema AND c.CONSTRAINT_TYPE = 'R'
+       ORDER BY c.CONSTRAINT_NAME, cc.POSITION`,
+      { schema }),
+  ]);
+
+  const tables = new Map();
+  for (const r of colRes.rows) {
+    if (!tables.has(r.TABLE_NAME)) tables.set(r.TABLE_NAME, { name: r.TABLE_NAME, columns: [] });
+    tables.get(r.TABLE_NAME).columns.push({
+      name: r.COLUMN_NAME,
+      type: buildColTypePart(r),
+      nullable: r.NULLABLE === 'Y',
+      pk: false, fk: false,
+    });
+  }
+
+  const pkSet = new Set(pkRes.rows.map(r => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));
+  const fkSet = new Set();
+  const edgeMap = new Map();
+  const edges = [];
+  for (const r of fkRes.rows) {
+    fkSet.add(`${r.CHILD_TABLE}.${r.CHILD_COLUMN}`);
+    let e = edgeMap.get(r.CONSTRAINT_NAME);
+    if (!e) {
+      e = { name: r.CONSTRAINT_NAME, from: r.CHILD_TABLE, to: r.PARENT_TABLE, columns: [] };
+      edgeMap.set(r.CONSTRAINT_NAME, e);
+      edges.push(e);
+    }
+    e.columns.push({ from: r.CHILD_COLUMN, to: r.PARENT_COLUMN });
+  }
+
+  for (const [tname, t] of tables) {
+    for (const c of t.columns) {
+      if (pkSet.has(`${tname}.${c.name}`)) c.pk = true;
+      if (fkSet.has(`${tname}.${c.name}`)) c.fk = true;
+    }
+  }
+
+  return { schema, tables: [...tables.values()], edges };
+}
+
 export async function getViewDDL(id, schema, viewName) {
   const r = await execute(id,
     `SELECT DBMS_METADATA.GET_DDL('VIEW', :name, :schema) AS DDL FROM DUAL`,

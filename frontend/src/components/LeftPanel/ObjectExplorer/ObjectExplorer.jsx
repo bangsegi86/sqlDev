@@ -142,6 +142,15 @@ export default function ObjectExplorer() {
       .finally(() => setLoading(l => ({ ...l, [key]: false })));
   }
 
+  function openErd(schema) {
+    openTab(dispatch, stateRef.current, {
+      id: `ERD-${activeConnectionId}-${schema}`,
+      type: 'erd', title: `ERD: ${schema}`,
+      connectionId: activeConnectionId,
+      content: { schema },
+    });
+  }
+
   const handleSchemaClick = useCallback((schema) => {
     const nodeId = `${activeConnectionId}-${schema}`;
     dispatch({ type: 'TOGGLE_NODE', payload: nodeId });
@@ -332,7 +341,14 @@ export default function ObjectExplorer() {
           const schemaExpanded = expandedNodes.has(schemaNodeId);
           return (
             <div key={schema}>
-              <div style={STYLE_SCHEMA} onClick={() => handleSchemaClick(schema)}>
+              <div
+                style={STYLE_SCHEMA}
+                onClick={() => handleSchemaClick(schema)}
+                onContextMenu={e => {
+                  e.preventDefault(); e.stopPropagation();
+                  setCtxMenu({ x: e.clientX, y: e.clientY, schema, type: null, name: null, isSchema: true });
+                }}
+              >
                 <span style={{ marginRight: 4 }}>{schemaExpanded ? '▾' : '▸'}</span>
                 <span style={{ fontSize: 13 }}>🗄</span>
                 <span style={{ marginLeft: 4, fontSize: 12 }}>{schema}</span>
@@ -410,6 +426,11 @@ export default function ObjectExplorer() {
           onMouseDown={e => e.stopPropagation()}
           style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000, minWidth: 210 }}
         >
+          {ctxMenu.isSchema ? (
+            <div className="ctx-menu-item" onClick={() => { openErd(ctxMenu.schema); setCtxMenu(null); }}>
+              🔗 ERD 다이어그램 보기
+            </div>
+          ) : <>
           {(() => {
             const cur = selRef.current;
             const count = (cur.schema === ctxMenu.schema && cur.type === ctxMenu.type)
@@ -441,6 +462,7 @@ export default function ObjectExplorer() {
                 })()}
               </div>
             )}
+          </>}
           </>}
         </div>
       )}

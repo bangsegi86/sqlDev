@@ -322,6 +322,77 @@ export async function getTableReferences(id, schema, tableName) {
   return r.rows;
 }
 
+// ── 스키마 전체 ERD (테이블 + 컬럼 + FK 관계) ──
+export async function getSchemaErd(id, schema) {
+  const [colRes, pkRes, fkRes] = await Promise.all([
+    q(id,
+      `SELECT table_name AS "TABLE_NAME", column_name AS "COLUMN_NAME",
+              data_type AS "DATA_TYPE", character_maximum_length AS "LEN",
+              numeric_precision AS "PREC", numeric_scale AS "SCALE",
+              is_nullable AS "NULLABLE", ordinal_position AS "POS"
+       FROM information_schema.columns
+       WHERE table_schema = $1
+       ORDER BY table_name, ordinal_position`,
+      [schema]),
+    q(id,
+      `SELECT tc.table_name AS "TABLE_NAME", kcu.column_name AS "COLUMN_NAME"
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+       WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1`,
+      [schema]),
+    q(id,
+      `SELECT tc.table_name AS "CHILD_TABLE", kcu.column_name AS "CHILD_COLUMN",
+              ccu.table_name AS "PARENT_TABLE", ccu.column_name AS "PARENT_COLUMN",
+              tc.constraint_name AS "CONSTRAINT_NAME"
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
+       ORDER BY tc.constraint_name`,
+      [schema]),
+  ]);
+
+  const fmtType = r => {
+    const t = r.DATA_TYPE;
+    if (r.LEN != null) return `${t}(${r.LEN})`;
+    if (r.PREC != null && (t === 'numeric' || t === 'decimal'))
+      return `${t}(${r.PREC}${r.SCALE ? ',' + r.SCALE : ''})`;
+    return t;
+  };
+
+  const tables = new Map();
+  for (const r of colRes.rows) {
+    if (!tables.has(r.TABLE_NAME)) tables.set(r.TABLE_NAME, { name: r.TABLE_NAME, columns: [] });
+    tables.get(r.TABLE_NAME).columns.push({
+      name: r.COLUMN_NAME, type: fmtType(r), nullable: r.NULLABLE === 'YES', pk: false, fk: false,
+    });
+  }
+  const pkSet = new Set(pkRes.rows.map(r => `${r.TABLE_NAME}.${r.COLUMN_NAME}`));
+  const fkSet = new Set();
+  const edgeMap = new Map();
+  const edges = [];
+  for (const r of fkRes.rows) {
+    fkSet.add(`${r.CHILD_TABLE}.${r.CHILD_COLUMN}`);
+    let e = edgeMap.get(r.CONSTRAINT_NAME);
+    if (!e) {
+      e = { name: r.CONSTRAINT_NAME, from: r.CHILD_TABLE, to: r.PARENT_TABLE, columns: [] };
+      edgeMap.set(r.CONSTRAINT_NAME, e);
+      edges.push(e);
+    }
+    e.columns.push({ from: r.CHILD_COLUMN, to: r.PARENT_COLUMN });
+  }
+  for (const [tname, t] of tables) {
+    for (const c of t.columns) {
+      if (pkSet.has(`${tname}.${c.name}`)) c.pk = true;
+      if (fkSet.has(`${tname}.${c.name}`)) c.fk = true;
+    }
+  }
+  return { schema, tables: [...tables.values()], edges };
+}
+
 // ── 테이블 명세 (주석 + 컬럼 + 인덱스 + FK) ──
 export async function getTableSpec(id, schema, tableName) {
   const [tabComment, columns, idxRows, fkRows] = await Promise.all([

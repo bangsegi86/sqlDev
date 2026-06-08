@@ -77,6 +77,7 @@ export const getColumns = delegate('getColumns');
 export const getTableData = delegate('getTableData');
 export const getTableDDL = delegate('getTableDDL');
 export const getTableReferences = delegate('getTableReferences');
+export const getSchemaErd = delegate('getSchemaErd');
 export const getTableSpec = delegate('getTableSpec');
 export const getViewDDL = delegate('getViewDDL');
 export const getSource = delegate('getSource');

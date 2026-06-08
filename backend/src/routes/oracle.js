@@ -70,6 +70,10 @@ router.get('/:id/tables/:schema/:name/references', wrap(async (req, res) => {
   res.json(await oracle.getTableReferences(req.params.id, req.params.schema, req.params.name));
 }));
 
+router.get('/:id/erd/:schema', wrap(async (req, res) => {
+  res.json(await oracle.getSchemaErd(req.params.id, req.params.schema));
+}));
+
 router.get('/:id/views/:schema/:name/ddl', wrap(async (req, res) => {
   res.json({ ddl: await oracle.getViewDDL(req.params.id, req.params.schema, req.params.name) });
 }));
