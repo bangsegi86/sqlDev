@@ -37,6 +37,7 @@ export default function ObjectExplorer() {
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
   const [filterCollapsed, setFilterCollapsed] = useState(new Set());
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, schema }
 
   // Keep latest state accessible inside stable callbacks without making them re-create
   const stateRef = useRef(state);
@@ -71,6 +72,14 @@ export default function ObjectExplorer() {
     });
   }, [objectFilter, expandedNodes, activeConnectionId]);
 
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
   if (!activeConnectionId || !isConnected) return null;
 
   function loadObjects(schema, type) {
@@ -103,6 +112,18 @@ export default function ObjectExplorer() {
       dispatch({ type: 'TOGGLE_NODE', payload: nodeId });
     }
   }, [dispatch, activeConnectionId]);
+
+  function openMonitor() {
+    const s = stateRef.current;
+    openTab(dispatch, s, {
+      id: `monitor-${activeConnectionId}`,
+      type: 'monitor',
+      title: '세션/락 모니터링',
+      connectionId: activeConnectionId,
+      content: {},
+    });
+    setCtxMenu(null);
+  }
 
   // Per-schema stable callback factory — memoized by schema+type key
   const makeObjectClickHandler = useCallback((schema) => (type, name) => {
@@ -162,7 +183,11 @@ export default function ObjectExplorer() {
           const objectClickHandler = makeObjectClickHandler(schema);
           return (
             <div key={schema}>
-              <div style={STYLE_SCHEMA} onClick={() => handleSchemaClick(schema)}>
+              <div
+                style={STYLE_SCHEMA}
+                onClick={() => handleSchemaClick(schema)}
+                onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, schema }); }}
+              >
                 <span style={{ marginRight: 4 }}>{schemaExpanded ? '▾' : '▸'}</span>
                 <span style={{ fontSize: 13 }}>🗄</span>
                 <span style={{ marginLeft: 4, fontSize: 12 }}>{schema}</span>
@@ -216,6 +241,19 @@ export default function ObjectExplorer() {
           );
         })}
       </div>
+
+      {/* Schema right-click context menu */}
+      {ctxMenu && (
+        <div
+          className="ctx-menu"
+          onMouseDown={e => e.stopPropagation()}
+          style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000, minWidth: 200 }}
+        >
+          <div className="ctx-menu-item" onClick={openMonitor}>
+            &#128202; 세션/락 모니터링
+          </div>
+        </div>
+      )}
     </div>
   );
 }

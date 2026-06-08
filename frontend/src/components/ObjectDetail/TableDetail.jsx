@@ -4,11 +4,12 @@ import DataTab from './DataTab.jsx';
 import DdlTab from './DdlTab.jsx';
 import ReferencesTab from './ReferencesTab.jsx';
 import SqlGenTab from './SqlGenTab.jsx';
+import IndexesTab from './IndexesTab.jsx';
 import { useApp } from '../../store/AppContext.jsx';
 
-const TABS_TABLE = ['columns', 'data', 'ddl', 'references', 'sqlgen'];
+const TABS_TABLE = ['columns', 'indexes', 'data', 'ddl', 'references', 'sqlgen'];
 const TABS_VIEW = ['columns', 'data', 'ddl'];
-const TAB_LABELS = { columns: 'Columns', data: 'Data', ddl: 'DDL', references: 'References', sqlgen: 'SQL 생성' };
+const TAB_LABELS = { columns: 'Columns', indexes: 'Indexes', data: 'Data', ddl: 'DDL', references: 'References', sqlgen: 'SQL 생성' };
 
 export default function TableDetail({ tab }) {
   const { dispatch } = useApp();
@@ -43,6 +44,7 @@ export default function TableDetail({ tab }) {
         {activeTab === 'columns' && <ColumnsTab connectionId={tab.connectionId} schema={schema} tableName={name} objectType={objectType} />}
         {activeTab === 'data' && <DataTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'ddl' && <DdlTab connectionId={tab.connectionId} schema={schema} name={name} objectType={objectType} />}
+        {activeTab === 'indexes' && <IndexesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'references' && <ReferencesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'sqlgen' && <SqlGenTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
       </div>
