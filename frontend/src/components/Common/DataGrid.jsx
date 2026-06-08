@@ -32,6 +32,17 @@ export default function DataGrid({
       setSelRow(null);
       setSelCol(null);
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      // 더블클릭으로 텍스트를 직접 선택한 경우 → 브라우저 기본 복사에 맡김
+      if (window.getSelection()?.toString()) return;
+      // 단일 셀이 선택된 경우 → 셀 값을 plain text로 복사
+      if (selRow !== null && selCol !== null) {
+        e.preventDefault();
+        const val = rows[selRow][selCol];
+        const text = val == null ? '' : String(val);
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    }
     if (e.key === 'Escape') {
       setSelRow(null); setSelCol(null); setAllSel(false);
     }
