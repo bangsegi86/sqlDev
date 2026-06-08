@@ -56,11 +56,10 @@ export function useCodeLookup() {
   // text: full source string (required for textarea where selectionStart is used)
   //       omit or pass null for <pre>/<div> (uses caretRangeFromPoint instead)
   const openContextMenu = useCallback((e, text) => {
-    const defs = loadCodeDefs();
-    if (defs.length === 0) return;
     e.preventDefault();
     setLookup(null);
 
+    const defs = loadCodeDefs();
     let word;
     if (typeof e.target.selectionStart === 'number' && text != null) {
       word = getRawWordAtPos(text, e.target.selectionStart);
