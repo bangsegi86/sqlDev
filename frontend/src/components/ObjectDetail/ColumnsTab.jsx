@@ -59,6 +59,14 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
       setSelRow(null);
       setSelCol(null);
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      if (window.getSelection()?.toString()) return;
+      if (selRow !== null && selCol !== null) {
+        e.preventDefault();
+        const val = cellValue(columns[selRow], selCol);
+        navigator.clipboard.writeText(val == null ? '' : String(val)).catch(() => {});
+      }
+    }
     if (e.key === 'Escape') {
       setSelRow(null); setSelCol(null); setAllSel(false);
     }
