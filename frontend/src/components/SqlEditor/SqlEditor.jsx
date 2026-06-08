@@ -234,13 +234,16 @@ export default function SqlEditor({ tab }) {
   function replaceOne() {
     const m = matches[matchIdx];
     if (!m) return;
-    const next = sql.slice(0, m.start) + replaceText + sql.slice(m.end);
-    setSql(next);
-    setHighlightedSql(renderHighlighted(next, navigableNames, ''));
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // execCommand keeps the browser's native undo stack intact so Ctrl+Z works correctly.
+    // It fires onChange which updates React state (setSql + setHighlightedSql) normally.
+    ta.focus();
+    ta.setSelectionRange(m.start, m.end);
+    document.execCommand('insertText', false, replaceText);
     const caret = m.start + replaceText.length;
     requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (ta) { ta.focus(); ta.setSelectionRange(caret, caret); }
+      ta.setSelectionRange(caret, caret);
       scrollToPos(caret);
     });
   }
@@ -251,8 +254,16 @@ export default function SqlEditor({ tab }) {
     for (const m of matches) { result += sql.slice(last, m.start) + replaceText; last = m.end; }
     result += sql.slice(last);
     const count = matches.length;
-    setSql(result);
-    setHighlightedSql(renderHighlighted(result, navigableNames, ''));
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.focus();
+      ta.select();
+      document.execCommand('insertText', false, result);
+    } else {
+      setSql(result);
+      setHighlightedSql(renderHighlighted(result, navigableNames, ''));
+    }
+    setMatchIdx(0);
     setAliasMsg(`${count}건 치환됨`);
     setTimeout(() => setAliasMsg(''), 2500);
   }

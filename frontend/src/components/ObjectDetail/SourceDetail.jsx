@@ -118,12 +118,15 @@ export default function SourceDetail({ tab }) {
   function replaceOne() {
     if (!editMode || !findMatches_.length) return;
     const m = findMatches_[findMatchIdx];
-    const next = editedSource.slice(0, m.start) + replaceText + editedSource.slice(m.end);
-    setEditedSource(next);
+    const ta = syntaxTextareaRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(m.start, m.end);
+    document.execCommand('insertText', false, replaceText);
     requestAnimationFrame(() => {
       const caret = m.start + replaceText.length;
-      if (syntaxTextareaRef.current) { syntaxTextareaRef.current.setSelectionRange(caret, caret); syntaxTextareaRef.current.focus(); }
-      const nm = findMatches(next, findText, { caseSensitive: findCase, useRegex: findRegex });
+      ta.setSelectionRange(caret, caret);
+      const nm = findMatches(ta.value, findText, { caseSensitive: findCase, useRegex: findRegex });
       const ni = Math.max(0, Math.min(findMatchIdx, nm.length - 1));
       setFindMatchIdx(ni);
       if (nm.length) scrollToFindMatch(ni, nm);
@@ -133,7 +136,15 @@ export default function SourceDetail({ tab }) {
     if (!editMode || !findMatches_.length) return;
     let result = '', last = 0;
     for (const m of findMatches_) { result += editedSource.slice(last, m.start) + replaceText; last = m.end; }
-    setEditedSource(result + editedSource.slice(last));
+    result += editedSource.slice(last);
+    const ta = syntaxTextareaRef.current;
+    if (ta) {
+      ta.focus();
+      ta.select();
+      document.execCommand('insertText', false, result);
+    } else {
+      setEditedSource(result);
+    }
     setFindMatchIdx(0);
   }
   function openFind(withReplace) {
