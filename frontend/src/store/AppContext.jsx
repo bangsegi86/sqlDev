@@ -102,8 +102,23 @@ function reducer(state, action) {
   }
 }
 
+function loadInitialState() {
+  try {
+    const raw = localStorage.getItem('sqldev.session');
+    if (!raw) return initialState;
+    localStorage.removeItem('sqldev.session');
+    const saved = JSON.parse(raw);
+    if (!saved || Date.now() - saved.savedAt > 10 * 60 * 1000) return initialState;
+    return {
+      ...initialState,
+      tabs: Array.isArray(saved.tabs) ? saved.tabs : [],
+      activeTabId: saved.activeTabId || null,
+    };
+  } catch { return initialState; }
+}
+
 export function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, undefined, loadInitialState);
   const pollRef = useRef(null);
 
   useEffect(() => {

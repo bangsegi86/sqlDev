@@ -3,13 +3,14 @@ import express from 'express';
 import cors from 'cors';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { networkInterfaces } from 'os';
 import connectionsRouter from './routes/connections.js';
 import oracleRouter from './routes/oracle.js';
 import settingsRouter from './routes/settings.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = join(__dir, '../../frontend/dist');
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0'; // 0.0.0.0 → 외부(다른 PC)에서도 접속 가능
@@ -24,13 +25,19 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), pid: process.pid, time: Date.now() });
 });
 
+// ── 빌드 버전 (클라이언트가 새 빌드를 감지하는 데 사용) ──
+app.get('/api/build-version', (req, res) => {
+  const distIndex = join(DIST_DIR, 'index.html');
+  if (!existsSync(distIndex)) return res.json({ version: 0 });
+  res.json({ version: statSync(distIndex).mtimeMs });
+});
+
 app.use('/api/connections', connectionsRouter);
 app.use('/api/oracle', oracleRouter);
 app.use('/api/settings', settingsRouter);
 
 // ── 빌드된 프론트엔드 정적 파일 서빙 (운영 모드) ──
 // frontend/dist 가 있으면 단일 포트에서 앱 전체를 제공한다.
-const DIST_DIR = join(__dir, '../../frontend/dist');
 const hasBuild = existsSync(join(DIST_DIR, 'index.html'));
 if (hasBuild) {
   app.use(express.static(DIST_DIR));

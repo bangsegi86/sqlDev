@@ -4,6 +4,7 @@ import LeftPanel from './components/LeftPanel/LeftPanel.jsx';
 import RightPanel from './components/RightPanel/RightPanel.jsx';
 import StatusBar from './components/Common/StatusBar.jsx';
 import SettingsModal from './components/Settings/SettingsModal.jsx';
+import BuildUpdateBanner from './components/Common/BuildUpdateBanner.jsx';
 
 function Layout() {
   const { state } = useApp();
@@ -39,6 +40,7 @@ function Layout() {
         <RightPanel />
       </div>
       <StatusBar />
+      <BuildUpdateBanner />
     </div>
   );
 }

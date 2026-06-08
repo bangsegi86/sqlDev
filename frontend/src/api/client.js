@@ -78,6 +78,8 @@ export const api = {
     return { filename };
   },
 
+  getBuildVersion: () => request('/build-version'),
+
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
   getJdbcStatus: () => request('/settings/jdbc-status'),
