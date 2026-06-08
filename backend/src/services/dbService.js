@@ -92,3 +92,17 @@ export const executeScriptStatements = delegate('executeScriptStatements');
 export const explainSQL = delegate('explainSQL');
 export const executeDml = delegate('executeDml');
 export const executeRaw = delegate('executeRaw');
+export const searchObjects = delegate('searchObjects');
+
+export const beginTransaction = delegate('beginTransaction');
+
+// txId 기반 — id 라우팅 불필요, Oracle 전용으로 직접 위임
+export async function executeInTransaction(txId, sql, binds = {}) {
+  return oracle.executeInTransaction(txId, sql, binds);
+}
+export async function commitTransaction(txId) {
+  return oracle.commitTransaction(txId);
+}
+export async function rollbackTransaction(txId) {
+  return oracle.rollbackTransaction(txId);
+}
