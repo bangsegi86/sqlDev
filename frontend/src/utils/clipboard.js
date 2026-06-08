@@ -1,6 +1,18 @@
 import { useState, useCallback, useRef } from 'react';
 import { diagLog } from './diagLog.js';
 
+export function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Chrome's renderer crashes when navigator.clipboard.writeText() sends text
 // larger than ~100KB over Mojo IPC. Empirically: 80KB works, 163KB crashes.
 //

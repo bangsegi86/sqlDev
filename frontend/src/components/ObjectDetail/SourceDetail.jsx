@@ -7,7 +7,7 @@ import SavePreviewModal from './SavePreviewModal.jsx';
 import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
-import { useCopy } from '../../utils/clipboard.js';
+import { useCopy, downloadText } from '../../utils/clipboard.js';
 import { diagLog } from '../../utils/diagLog.js';
 
 // Isolated copy button — owns its own state so re-renders never touch the source view.
@@ -471,6 +471,12 @@ export default function SourceDetail({ tab }) {
             {/* Top toolbar */}
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
               <CopyBtn getText={() => editMode ? editedSource : (isFormatted ? formattedSource : source)} />
+              <button
+                className="btn-secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={() => downloadText(`${name}.sql`, editMode ? editedSource : (isFormatted ? formattedSource : source))}
+                title="SQL 파일로 다운로드"
+              >⬇ 다운로드</button>
               {!editMode && (
                 <button
                   className={isFormatted ? 'btn-success' : 'btn-secondary'}

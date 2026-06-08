@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Modal from '../Common/Modal.jsx';
 import { api } from '../../api/client.js';
+import { downloadText } from '../../utils/clipboard.js';
 
 const TYPE_LABELS = {
   TABLE: 'Table', VIEW: 'View', 'MATERIALIZED VIEW': 'Materialized View',
@@ -93,7 +94,17 @@ export default function ScriptViewModal({ connectionId, schema, type, names, dbT
             }}
           />
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+          <button
+            className="btn-secondary"
+            disabled={loading}
+            onClick={() => {
+              const filename = names.length === 1
+                ? `${schema}_${names[0]}.sql`
+                : `${schema}_${type}_script.sql`;
+              downloadText(filename, script);
+            }}
+          >⬇ 다운로드</button>
           <button className="btn-secondary" onClick={handleCopy} disabled={loading}>
             {copied ? '✓ 복사됨' : '📋 복사'}
           </button>
