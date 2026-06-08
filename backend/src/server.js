@@ -51,6 +51,7 @@ app.post('/api/diag-log', (req, res) => {
   res.json({ ok: true });
 });
 
+app.use('/api/connections', connectionsRouter);
 app.use('/api/oracle', oracleRouter);
 app.use('/api/settings', settingsRouter);
 
