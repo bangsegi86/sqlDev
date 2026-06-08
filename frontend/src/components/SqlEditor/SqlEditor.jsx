@@ -240,7 +240,6 @@ export default function SqlEditor({ tab }) {
     replaceUndoRef.current = sql;   // save snapshot for Ctrl+Z
     const next = sql.slice(0, m.start) + replaceText + sql.slice(m.end);
     setSql(next);
-    setHighlightedSql(renderHighlighted(next, navigableNames, ''));
     const caret = m.start + replaceText.length;
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
@@ -257,7 +256,6 @@ export default function SqlEditor({ tab }) {
     result += sql.slice(last);
     const count = matches.length;
     setSql(result);
-    setHighlightedSql(renderHighlighted(result, navigableNames, ''));
     setMatchIdx(0);
     setAliasMsg(`${count}건 치환됨`);
     setTimeout(() => setAliasMsg(''), 2500);
@@ -405,28 +403,12 @@ export default function SqlEditor({ tab }) {
   const hlWordRef = useRef('');
   const clearHlTimerRef = useRef(null);
 
-  // highlightedSql is updated synchronously in handleChange (same render as setSql)
-  // to eliminate the visible lag from a separate debounced state update.
-  // navigableNames changes (object list load) still use a debounce since they
-  // arrive outside of user input and don't need to be instant.
-  const [highlightedSql, setHighlightedSql] = useState(() => renderHighlighted(sql, navigableNames, ''));
-  const hlNavTimerRef = useRef(null);
-  useEffect(() => {
-    clearTimeout(hlNavTimerRef.current);
-    hlNavTimerRef.current = setTimeout(() => {
-      setHighlightedSql(renderHighlighted(sql, navigableNames, hlWordRef.current));
-    }, 80);
-    return () => clearTimeout(hlNavTimerRef.current);
-  // Only re-run when navigableNames changes, NOT on sql change —
-  // sql-driven updates happen synchronously in handleChange.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigableNames]);
-
-  // Recompute highlight when selected word changes
-  useEffect(() => {
-    setHighlightedSql(renderHighlighted(sql, navigableNames, hlWordRef.current));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlWord]);
+  // Derive highlighting from sql — never out of sync, no manual setHighlightedSql needed.
+  // Same pattern as SyntaxTextarea.
+  const highlightedSql = useMemo(
+    () => renderHighlighted(sql, navigableNames, hlWord),
+    [sql, navigableNames, hlWord]
+  );
 
   function openAutocomplete() {
     if (!connId || !schema) return;
@@ -552,7 +534,6 @@ export default function SqlEditor({ tab }) {
       const prev = replaceUndoRef.current;
       replaceUndoRef.current = null;
       setSql(prev);
-      setHighlightedSql(renderHighlighted(prev, navigableNames, ''));
       requestAnimationFrame(() => { textareaRef.current?.focus(); });
       return;
     }
@@ -585,7 +566,6 @@ export default function SqlEditor({ tab }) {
       const end = e.target.selectionEnd;
       const newSql = sql.slice(0, start) + '  ' + sql.slice(end);
       setSql(newSql);
-      setHighlightedSql(renderHighlighted(newSql, navigableNames, hlWordRef.current));
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
@@ -604,10 +584,6 @@ export default function SqlEditor({ tab }) {
     setSql(newSql);
     replaceUndoRef.current = null;   // normal edit → discard replace undo snapshot
     if (hlWordRef.current) { hlWordRef.current = ''; setHlWord(''); }
-    // Update highlight in the same render cycle as setSql so there is no
-    // visible delay between typing and characters appearing in the editor.
-    // React 18 batches both state updates into one DOM commit.
-    setHighlightedSql(renderHighlighted(newSql, navigableNames, ''));
     // Recalculate active line after content change
     requestAnimationFrame(updateActiveLine);
 
@@ -1153,7 +1129,6 @@ export default function SqlEditor({ tab }) {
           onPick={picked => {
             setSql(prev => {
               const next = prev.trim() ? prev.replace(/\s*$/, '') + '\n\n' + picked : picked;
-              setHighlightedSql(renderHighlighted(next, navigableNames, ''));
               requestAnimationFrame(() => {
                 const ta = textareaRef.current;
                 if (ta) { ta.focus(); ta.selectionStart = ta.selectionEnd = next.length; }
