@@ -1,40 +1,47 @@
 import { useState, useCallback, useRef } from 'react';
 import { diagLog } from './diagLog.js';
 
-// navigator.clipboard.writeText() crashes Chrome's renderer process when
-// the text exceeds ~100KB (Chromium IPC buffer bug). Empirically confirmed:
-// ~80KB works, 163KB crashes. So we only use writeText for text under 80KB;
-// larger text goes to the off-screen Ctrl+C fallback (no rendering = no crash).
-const WRITE_TEXT_LIMIT = 80_000; // ~80 KB — safe upper bound from testing
+// Chrome's renderer crashes when navigator.clipboard.writeText() sends text
+// larger than ~100KB over Mojo IPC. Empirically: 80KB works, 163KB crashes.
+//
+// For large text we use ClipboardItem + Blob which transfers via shared memory
+// instead of the IPC message payload — avoiding the crash.
+// Only if both methods fail (e.g. HTTP context) do we return false and let the
+// caller show the off-screen Ctrl+C fallback.
+const WRITE_TEXT_LIMIT = 80_000; // ~80 KB — safe ceiling for writeText
 
-// Returns true on success, false on failure (caller shows off-screen fallback).
-// document.execCommand('copy') is intentionally NOT used — it crashes Chromium.
 export async function copyText(text) {
   if (!text) return false;
 
   const len = text.length;
-  const kb  = (len / 1024).toFixed(1);
-  diagLog(`[clipboard] copyText start  len=${len} (${kb} KB)`);
+  diagLog(`[clipboard] copyText start  len=${len} (${(len/1024).toFixed(1)} KB)`);
 
-  if (
-    len <= WRITE_TEXT_LIMIT &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === 'function'
-  ) {
-    diagLog('[clipboard] path → navigator.clipboard.writeText');
+  // Method 1: writeText — only for small text (crashes Chrome above ~100KB)
+  if (len <= WRITE_TEXT_LIMIT && navigator.clipboard?.writeText) {
+    diagLog('[clipboard] method 1: writeText');
     try {
       await navigator.clipboard.writeText(text);
       diagLog('[clipboard] writeText SUCCESS');
       return true;
     } catch (err) {
-      diagLog(`[clipboard] writeText FAILED: ${err?.name} ${err?.message}`);
+      diagLog(`[clipboard] writeText FAILED: ${err?.name}`);
     }
-  } else {
-    const reason = len > WRITE_TEXT_LIMIT
-      ? `len ${len} > limit ${WRITE_TEXT_LIMIT} (Chrome IPC crash prevention)`
-      : 'clipboard API unavailable';
-    diagLog(`[clipboard] path → off-screen fallback  (${reason})`);
   }
+
+  // Method 2: ClipboardItem + Blob — uses shared-memory transfer, safe for large text
+  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+    diagLog('[clipboard] method 2: ClipboardItem + Blob');
+    try {
+      const blob = new Blob([text], { type: 'text/plain' });
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+      diagLog('[clipboard] ClipboardItem SUCCESS');
+      return true;
+    } catch (err) {
+      diagLog(`[clipboard] ClipboardItem FAILED: ${err?.name}`);
+    }
+  }
+
+  diagLog('[clipboard] all methods failed → off-screen fallback');
   return false;
 }
 
