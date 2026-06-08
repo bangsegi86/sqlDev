@@ -12,6 +12,8 @@ import { useCodeLookup } from '../../hooks/useCodeLookup.js';
 import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
 import CodeLookupPopup from '../SqlEditor/CodeLookupPopup.jsx';
 import CodeDictModal from '../SqlEditor/CodeDictModal.jsx';
+import FindBar from '../Common/FindBar.jsx';
+import { findMatches } from '../../utils/findReplace.js';
 
 const ANALYZABLE = ['PROCEDURE', 'FUNCTION', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER'];
 const CALLABLE_TYPES = ['PROCEDURE', 'FUNCTION'];
@@ -60,11 +62,102 @@ export default function SourceDetail({ tab }) {
   const ctrlHeldRef = useRef(false);
   const preRef = useRef(null);
 
+  // Find & Replace
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [findCase, setFindCase] = useState(false);
+  const [findRegex, setFindRegex] = useState(false);
+  const [findMatchIdx, setFindMatchIdx] = useState(0);
+  const findInputRef = useRef(null);
+  const syntaxTextareaRef = useRef(null);   // ref → SyntaxTextarea's inner <textarea>
+  const findScrollRef = useRef(null);        // ref → read-only pre's scroll container
+
   const highlightedLines = useMemo(() => {
     const code = isFormatted ? formattedSource : source;
     if (!code) return null;
     return splitHighlightedLines(highlightTokens(code));
   }, [source, formattedSource, isFormatted]);
+
+  // Find & Replace — compute matches from current visible text
+  const findCurrentText = editMode ? editedSource : (isFormatted ? formattedSource : source);
+  const findMatches_ = useMemo(
+    () => findMatches(findCurrentText, findText, { caseSensitive: findCase, useRegex: findRegex }),
+    [findCurrentText, findText, findCase, findRegex]
+  );
+  useEffect(() => { setFindMatchIdx(0); }, [findText, findCase, findRegex]);
+
+  // Scroll to match: textarea selection in edit mode, pre scroll in read-only
+  function scrollToFindMatch(i, ms) {
+    const m = (ms || findMatches_)[i];
+    if (!m) return;
+    const lineNum = findCurrentText.slice(0, m.start).split('\n').length - 1;
+    setActiveLine(lineNum);
+    if (editMode && syntaxTextareaRef.current) {
+      const ta = syntaxTextareaRef.current;
+      ta.setSelectionRange(m.start, m.end);
+      ta.focus();
+      const lineH = 12 * 1.55;
+      ta.scrollTop = Math.max(0, lineNum * lineH - ta.clientHeight / 2);
+    } else if (findScrollRef.current) {
+      const lineH = 12 * 1.5;
+      findScrollRef.current.scrollTop = Math.max(0, lineNum * lineH - findScrollRef.current.clientHeight / 2);
+    }
+  }
+
+  function findNext() {
+    if (!findMatches_.length) return;
+    const i = (findMatchIdx + 1) % findMatches_.length;
+    setFindMatchIdx(i); scrollToFindMatch(i);
+  }
+  function findPrev() {
+    if (!findMatches_.length) return;
+    const i = (findMatchIdx - 1 + findMatches_.length) % findMatches_.length;
+    setFindMatchIdx(i); scrollToFindMatch(i);
+  }
+  function replaceOne() {
+    if (!editMode || !findMatches_.length) return;
+    const m = findMatches_[findMatchIdx];
+    const next = editedSource.slice(0, m.start) + replaceText + editedSource.slice(m.end);
+    setEditedSource(next);
+    requestAnimationFrame(() => {
+      const caret = m.start + replaceText.length;
+      if (syntaxTextareaRef.current) { syntaxTextareaRef.current.setSelectionRange(caret, caret); syntaxTextareaRef.current.focus(); }
+      const nm = findMatches(next, findText, { caseSensitive: findCase, useRegex: findRegex });
+      const ni = Math.max(0, Math.min(findMatchIdx, nm.length - 1));
+      setFindMatchIdx(ni);
+      if (nm.length) scrollToFindMatch(ni, nm);
+    });
+  }
+  function replaceAll() {
+    if (!editMode || !findMatches_.length) return;
+    let result = '', last = 0;
+    for (const m of findMatches_) { result += editedSource.slice(last, m.start) + replaceText; last = m.end; }
+    setEditedSource(result + editedSource.slice(last));
+    setFindMatchIdx(0);
+  }
+  function openFind(withReplace) {
+    setFindOpen(true);
+    requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
+  }
+  function closeFind() {
+    setFindOpen(false);
+    if (editMode) syntaxTextareaRef.current?.focus();
+    else preRef.current?.focus();
+  }
+
+  // Ctrl+F / Ctrl+H shortcut — active when the source tab is visible
+  useEffect(() => {
+    if (activeTab !== 'source') return;
+    function handler(e) {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'f' || e.key === 'F') { e.preventDefault(); openFind(false); }
+        if (e.key === 'h' || e.key === 'H') { e.preventDefault(); openFind(true); }
+      }
+    }
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [activeTab]);
 
   // Set of callable names for underline rendering
   const navigableCallableNames = useMemo(
@@ -260,7 +353,22 @@ export default function SourceDetail({ tab }) {
         )}
 
         {activeTab === 'source' && (
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, position: 'relative' }}>
+            {/* Find & Replace overlay */}
+            {findOpen && (
+              <FindBar
+                findInputRef={findInputRef}
+                findText={findText} replaceText={replaceText}
+                findCase={findCase} findRegex={findRegex}
+                matchIdx={findMatchIdx} matchCount={findMatches_.length}
+                onFindChange={setFindText} onReplaceChange={setReplaceText}
+                onToggleCase={() => setFindCase(v => !v)} onToggleRegex={() => setFindRegex(v => !v)}
+                onNext={findNext} onPrev={findPrev}
+                onReplaceOne={replaceOne} onReplaceAll={replaceAll}
+                onClose={closeFind}
+                showReplace={editMode}
+              />
+            )}
             {/* Top toolbar */}
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
@@ -326,6 +434,7 @@ export default function SourceDetail({ tab }) {
 
               return editMode ? (
                 <SyntaxTextarea
+                  ref={syntaxTextareaRef}
                   value={editedSource}
                   onChange={setEditedSource}
                   onContextMenu={e => openContextMenu(e, editedSource)}
@@ -334,10 +443,14 @@ export default function SourceDetail({ tab }) {
                     const word = editedSource.slice(ta.selectionStart, ta.selectionEnd).trim();
                     if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
                   }}
+                  onKeyDown={e => {
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); openFind(false); }
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); openFind(true); }
+                  }}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 />
               ) : (
-                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <div ref={findScrollRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                   <pre
                     ref={preRef}
                     className="sql-source-pre"

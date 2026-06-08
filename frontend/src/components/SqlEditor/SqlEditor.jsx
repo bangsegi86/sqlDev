@@ -16,9 +16,10 @@ import CodeLookupMenu from '../Common/CodeLookupMenu.jsx';
 import { exportCSV, exportExcel } from '../../utils/exportData.js';
 import { addHistory } from '../../utils/queryHistory.js';
 import QueryHistoryModal from './QueryHistoryModal.jsx';
+import FindBar from '../Common/FindBar.jsx';
+import { findMatches } from '../../utils/findReplace.js';
 
 const LIMIT = 200;
-const findBtnStyle = { padding: '3px 7px', fontSize: 11, minWidth: 28 };
 // Object types to include in autocomplete
 const AC_TYPES = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'SEQUENCE'];
 
@@ -58,31 +59,6 @@ function getStatementAtCursor(sql, cursorPos) {
 }
 
 // Find all match ranges of `query` within `text`
-function findMatches(text, query, { caseSensitive, useRegex }) {
-  if (!query) return [];
-  const res = [];
-  if (useRegex) {
-    let re;
-    try { re = new RegExp(query, caseSensitive ? 'g' : 'gi'); } catch { return []; }
-    let m;
-    while ((m = re.exec(text)) !== null) {
-      res.push({ start: m.index, end: m.index + m[0].length });
-      if (m.index === re.lastIndex) re.lastIndex++;   // avoid zero-width loop
-      if (res.length > 10000) break;
-    }
-  } else {
-    const hay = caseSensitive ? text : text.toLowerCase();
-    const needle = caseSensitive ? query : query.toLowerCase();
-    let i = 0;
-    while ((i = hay.indexOf(needle, i)) !== -1) {
-      res.push({ start: i, end: i + needle.length });
-      i += needle.length || 1;
-      if (res.length > 10000) break;
-    }
-  }
-  return res;
-}
-
 // Extract the word being typed at cursor position (alphanumeric + _ + $)
 function getWordAtCursor(text, pos) {
   let start = pos;
@@ -886,51 +862,18 @@ export default function SqlEditor({ tab }) {
 
       {/* Find & Replace bar — absolute overlay, does not shift layout */}
       {findOpen && (
-        <div
-          style={{
-            position: 'absolute', top: 40, right: 16, zIndex: 50,
-            background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 6,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 340,
-          }}
-          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeFind(); } }}
-        >
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input
-              ref={findInputRef}
-              placeholder="찾기"
-              value={findText}
-              onChange={e => setFindText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? prevMatch() : nextMatch(); } }}
-              style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none', fontFamily: 'var(--code-font)' }}
-            />
-            <span style={{ fontSize: 11, color: 'var(--text-dim)', minWidth: 56, textAlign: 'center' }}>
-              {matches.length ? `${matchIdx + 1}/${matches.length}` : '0/0'}
-            </span>
-            <button className="btn-secondary" style={findBtnStyle} title="이전 (Shift+Enter)" onClick={prevMatch} disabled={!matches.length}>▲</button>
-            <button className="btn-secondary" style={findBtnStyle} title="다음 (Enter)" onClick={nextMatch} disabled={!matches.length}>▼</button>
-            <button
-              className="btn-secondary" style={{ ...findBtnStyle, background: findCase ? 'var(--accent)' : undefined, color: findCase ? '#06283a' : undefined }}
-              title="대소문자 구분" onClick={() => setFindCase(v => !v)}
-            >Aa</button>
-            <button
-              className="btn-secondary" style={{ ...findBtnStyle, background: findRegex ? 'var(--accent)' : undefined, color: findRegex ? '#06283a' : undefined }}
-              title="정규식" onClick={() => setFindRegex(v => !v)}
-            >.*</button>
-            <button style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 14 }} title="닫기 (Esc)" onClick={closeFind}>✕</button>
-          </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input
-              placeholder="바꾸기"
-              value={replaceText}
-              onChange={e => setReplaceText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); replaceOne(); } }}
-              style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '4px 8px', outline: 'none', fontFamily: 'var(--code-font)' }}
-            />
-            <button className="btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={replaceOne} disabled={!matches.length}>바꿈</button>
-            <button className="btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={replaceAll} disabled={!matches.length}>모두 바꿈</button>
-          </div>
-        </div>
+        <FindBar
+          findInputRef={findInputRef}
+          findText={findText} replaceText={replaceText}
+          findCase={findCase} findRegex={findRegex}
+          matchIdx={matchIdx} matchCount={matches.length}
+          onFindChange={setFindText} onReplaceChange={setReplaceText}
+          onToggleCase={() => setFindCase(v => !v)} onToggleRegex={() => setFindRegex(v => !v)}
+          onNext={nextMatch} onPrev={prevMatch}
+          onReplaceOne={replaceOne} onReplaceAll={replaceAll}
+          onClose={closeFind}
+          style={{ top: 40 }}
+        />
       )}
 
       {/* Editor — outer div scrolls; pre + textarea are both inside so they
