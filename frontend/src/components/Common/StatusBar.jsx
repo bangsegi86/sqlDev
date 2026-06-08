@@ -57,6 +57,16 @@ export default function StatusBar() {
           {activeConn ? (
             <>
               <DbTypeIcon dbType={activeConn.type} />
+              {activeConn.color && (
+                <span
+                  title={activeConn.color}
+                  style={{
+                    display: 'inline-block', width: 8, height: 8,
+                    borderRadius: '50%', background: activeConn.color, flexShrink: 0,
+                    boxShadow: `0 0 4px ${activeConn.color}`,
+                  }}
+                />
+              )}
               <span style={{ fontWeight: 600 }}>{activeConn.name}</span>
               {activeConn.host && (
                 <span style={{ opacity: 0.7 }}>({activeConn.host})</span>

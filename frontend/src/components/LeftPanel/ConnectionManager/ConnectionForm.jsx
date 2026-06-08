@@ -3,6 +3,15 @@ import Modal from '../../Common/Modal.jsx';
 import { api } from '../../../api/client.js';
 import { useApp } from '../../../store/AppContext.jsx';
 
+const ENV_COLORS = [
+  { value: null,      label: '없음',       bg: '#555555' },
+  { value: '#e05555', label: '운영(Red)',   bg: '#e05555' },
+  { value: '#e08844', label: '스테이징(Orange)', bg: '#e08844' },
+  { value: '#c8b440', label: 'UAT(Yellow)', bg: '#c8b440' },
+  { value: '#44a855', label: '개발(Green)', bg: '#44a855' },
+  { value: '#4488cc', label: '로컬(Blue)',  bg: '#4488cc' },
+];
+
 export default function ConnectionForm({ onClose, editing = null }) {
   const { dispatch } = useApp();
   const [form, setForm] = useState({
@@ -14,6 +23,7 @@ export default function ConnectionForm({ onClose, editing = null }) {
     database: editing?.database || '',
     username: editing?.username || '',
     password: '',
+    color: editing?.color || null,
   });
   const [showPw, setShowPw] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -106,6 +116,29 @@ export default function ConnectionForm({ onClose, editing = null }) {
             onClick={() => setShowPw(s => !s)}
             style={{ position: 'absolute', right: 6, bottom: 6, background: 'none', color: 'var(--text-secondary)', padding: 2 }}
           >{showPw ? '🙈' : '👁'}</button>
+        </div>
+
+        {/* Color picker */}
+        <div>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 11, color: 'var(--text-secondary)' }}>환경 색상 (선택)</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {ENV_COLORS.map(c => (
+              <button
+                key={String(c.value)}
+                title={c.label}
+                onClick={() => set('color', c.value)}
+                style={{
+                  width: 24, height: 24, borderRadius: '50%',
+                  background: c.bg,
+                  border: form.color === c.value ? '2px solid #fff' : '2px solid transparent',
+                  outline: form.color === c.value ? `2px solid ${c.bg || '#888'}` : 'none',
+                  outlineOffset: 1,
+                  cursor: 'pointer', padding: 0, flexShrink: 0,
+                  transition: 'outline 0.15s, border 0.15s',
+                }}
+              />
+            ))}
+          </div>
         </div>
 
         {testResult && (

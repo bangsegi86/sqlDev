@@ -50,6 +50,7 @@ export async function create(data) {
     database: data.database,            // PostgreSQL database name
     username: data.username,
     password: encrypt(data.password),
+    color: data.color || null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -74,6 +75,7 @@ export async function update(id, data) {
     database: data.database ?? existing.database,
     username: data.username ?? existing.username,
     password: data.password ? encrypt(data.password) : existing.password,
+    color: 'color' in data ? (data.color || null) : existing.color,
     updatedAt: new Date().toISOString(),
   };
   connections[idx] = updated;

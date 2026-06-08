@@ -90,6 +90,16 @@ export default function ConnectionItem({ conn }) {
         />
         {/* DB type icon */}
         <span style={{ fontSize: 11, flexShrink: 0, lineHeight: 1 }}>{dbIcon}</span>
+        {/* Environment color dot */}
+        {conn.color && (
+          <span
+            title={conn.color}
+            style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: conn.color, flexShrink: 0, display: 'inline-block',
+            }}
+          />
+        )}
         {/* Name */}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
           {conn.name}
