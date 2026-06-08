@@ -552,70 +552,51 @@ export default function SourceDetail({ tab }) {
                 />
               ) : (
                 <div ref={findScrollRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                  {(highlightedLines || []).length > 800 ? (
-                    /* Large source: plain-text rendering avoids ~22k span elements that crash Chrome Ctrl+C */
-                    <div style={{ display: 'flex', minWidth: 'max-content' }}>
-                      <pre style={{
-                        margin: 0, padding: '0 12px 0 8px', flexShrink: 0,
-                        fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.5,
-                        color: 'var(--text-dim)', background: 'var(--bg-primary)',
-                        textAlign: 'right', userSelect: 'none',
-                        borderRight: '1px solid var(--border)',
-                      }}>
-                        {Array.from({ length: (highlightedLines || []).length }, (_, i) => i + 1).join('\n')}
-                      </pre>
-                      <pre
-                        ref={preRef}
-                        className="sql-source-pre"
-                        onContextMenu={openContextMenu}
-                        onKeyDown={e => { if (e.key === 'Escape') setHlWord(''); }}
-                        tabIndex={-1}
+                  <pre
+                    ref={preRef}
+                    className="sql-source-pre"
+                    onContextMenu={openContextMenu}
+                    onMouseDown={() => {
+                      clearTimeout(clearHlTimerRef.current);
+                      if (hlWord) {
+                        clearHlTimerRef.current = setTimeout(() => setHlWord(''), 300);
+                      }
+                    }}
+                    onDoubleClick={() => {
+                      clearTimeout(clearHlTimerRef.current);
+                      const word = window.getSelection()?.toString().trim() ?? '';
+                      if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
+                      else setHlWord('');
+                    }}
+                    onKeyDown={e => { if (e.key === 'Escape') setHlWord(''); }}
+                    onCopy={e => {
+                      // Prevent Chrome from serializing thousands of span elements to HTML
+                      // (causes renderer crash for large sources). Write plain text only.
+                      const sel = window.getSelection()?.toString();
+                      if (sel) {
+                        e.preventDefault();
+                        e.clipboardData.setData('text/plain', sel);
+                      }
+                    }}
+                    tabIndex={-1}
+                    style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
+                  >
+                    {(highlightedLines || []).map((lineToks, i) => (
+                      <div
+                        key={i}
+                        onClick={() => setActiveLine(i)}
                         style={{
-                          margin: 0, padding: '0 0 0 8px', flex: 1,
-                          fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.5,
-                          color: 'var(--text-primary)', background: 'var(--bg-primary)',
-                          whiteSpace: 'pre',
+                          display: 'flex',
+                          background: activeLine === i ? 'rgba(255,255,255,0.07)' : 'transparent',
                         }}
-                      >{isFormatted ? formattedSource : source}</pre>
-                    </div>
-                  ) : (
-                    <pre
-                      ref={preRef}
-                      className="sql-source-pre"
-                      onContextMenu={openContextMenu}
-                      onMouseDown={() => {
-                        clearTimeout(clearHlTimerRef.current);
-                        if (hlWord) {
-                          clearHlTimerRef.current = setTimeout(() => setHlWord(''), 300);
-                        }
-                      }}
-                      onDoubleClick={() => {
-                        clearTimeout(clearHlTimerRef.current);
-                        const word = window.getSelection()?.toString().trim() ?? '';
-                        if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
-                        else setHlWord('');
-                      }}
-                      onKeyDown={e => { if (e.key === 'Escape') setHlWord(''); }}
-                      tabIndex={-1}
-                      style={{ margin: 0, padding: 0, fontFamily: 'var(--code-font)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5, background: 'var(--bg-primary)', minWidth: 'max-content' }}
-                    >
-                      {(highlightedLines || []).map((lineToks, i) => (
-                        <div
-                          key={i}
-                          onClick={() => setActiveLine(i)}
-                          style={{
-                            display: 'flex',
-                            background: activeLine === i ? 'rgba(255,255,255,0.07)' : 'transparent',
-                          }}
-                        >
-                          <span style={{ width: 44, minWidth: 44, color: activeLine === i ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
-                          <span style={{ whiteSpace: 'pre', paddingLeft: 4, flex: 1 }}>
-                            {lineToks.map((tok, j) => renderTok(tok, j, lineToks))}
-                          </span>
-                        </div>
-                      ))}
-                    </pre>
-                  )}
+                      >
+                        <span style={{ width: 44, minWidth: 44, color: activeLine === i ? 'var(--accent-bright)' : 'var(--text-dim)', textAlign: 'right', paddingRight: 12, flexShrink: 0, userSelect: 'none', lineHeight: 1.5 }}>{i + 1}</span>
+                        <span style={{ whiteSpace: 'pre', paddingLeft: 4, flex: 1 }}>
+                          {lineToks.map((tok, j) => renderTok(tok, j, lineToks))}
+                        </span>
+                      </div>
+                    ))}
+                  </pre>
                 </div>
               );
             })()}
