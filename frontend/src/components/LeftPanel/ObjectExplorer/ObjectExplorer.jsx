@@ -445,6 +445,20 @@ export default function ObjectExplorer() {
             refreshObjects(ctxMenu.schema, ctxMenu.type);
             setCtxMenu(null);
           }}>↻ 새로고침</div>
+          {ctxMenu.name === null && (() => {
+            const key = `${activeConnectionId}-${ctxMenu.schema}-${ctxMenu.type}`;
+            const list = objects[key];
+            if (!list?.length) return null;
+            return (
+              <>
+                <div className="ctx-menu-sep" />
+                <div className="ctx-menu-item" onClick={() => {
+                  setScriptModal({ schema: ctxMenu.schema, type: ctxMenu.type, names: list });
+                  setCtxMenu(null);
+                }}>📄 스크립트 보기 ({list.length}개)</div>
+              </>
+            );
+          })()}
           {ctxMenu.name !== null && <>
             <div className="ctx-menu-sep" />
             <div className="ctx-menu-item" onClick={() => {
