@@ -4,12 +4,13 @@ import DataTab from './DataTab.jsx';
 import DdlTab from './DdlTab.jsx';
 import ReferencesTab from './ReferencesTab.jsx';
 import SqlGenTab from './SqlGenTab.jsx';
+import IndexesTab from './IndexesTab.jsx';
 import { useApp } from '../../store/AppContext.jsx';
 
-const TABS_TABLE = ['columns', 'data', 'ddl', 'references', 'sqlgen'];
+const TABS_TABLE = ['columns', 'indexes', 'data', 'ddl', 'references', 'sqlgen'];
 const TABS_VIEW  = ['columns', 'data', 'ddl'];
 const TABS_MATVIEW = ['columns', 'data', 'ddl'];
-const TAB_LABELS = { columns: '컬럼', data: '데이터', ddl: 'DDL', references: '참조', sqlgen: 'SQL 생성' };
+const TAB_LABELS = { columns: '컬럼', indexes: '인덱스', data: '데이터', ddl: 'DDL', references: '참조', sqlgen: 'SQL 생성' };
 const TYPE_ICON  = { TABLE: '▦', VIEW: '◫', 'MATERIALIZED VIEW': '◫', SYNONYM: '≡' };
 
 export default function TableDetail({ tab }) {
@@ -51,6 +52,7 @@ export default function TableDetail({ tab }) {
         {activeTab === 'columns' && <ColumnsTab connectionId={tab.connectionId} schema={schema} tableName={name} objectType={objectType} />}
         {activeTab === 'data' && <DataTab connectionId={tab.connectionId} schema={schema} tableName={name} objectType={objectType} />}
         {activeTab === 'ddl' && <DdlTab connectionId={tab.connectionId} schema={schema} name={name} objectType={objectType} />}
+        {activeTab === 'indexes' && <IndexesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'references' && <ReferencesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'sqlgen' && <SqlGenTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
       </div>

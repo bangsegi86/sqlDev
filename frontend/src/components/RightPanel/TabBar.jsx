@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useApp, openTab } from '../../store/AppContext.jsx';
 
-const TYPE_ICONS = { sql: '⊢', table: '▦', source: '{}', sequence: '∞', synonym: '≡' };
+const TYPE_ICONS = { sql: '⊢', table: '▦', source: '{}', sequence: '∞', synonym: '≡', monitor: '📊' };
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 

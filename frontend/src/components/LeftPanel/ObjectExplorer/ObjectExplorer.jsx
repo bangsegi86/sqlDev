@@ -63,6 +63,7 @@ export default function ObjectExplorer() {
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
   const [filterCollapsed, setFilterCollapsed] = useState(new Set());
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, schema }
 
   // Multi-select: scoped to same schema + same type
   // { schema: string|null, type: string|null, names: Set<string> }

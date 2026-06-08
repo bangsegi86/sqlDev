@@ -983,6 +983,11 @@ export async function executeDml(id, sql, binds = {}) {
   }
 }
 
+// Raw query execution — exposed for routes that need ad-hoc queries
+export async function executeRaw(id, sql, params = {}) {
+  return execute(id, sql, params);
+}
+
 process.on('SIGTERM', async () => {
   for (const [, entry] of pools) {
     try { await entry.pool.close(0); } catch {}

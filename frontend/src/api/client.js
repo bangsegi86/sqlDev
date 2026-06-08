@@ -33,6 +33,7 @@ export const api = {
   getTableDDL: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/ddl`),
   getTableReferences: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/references`),
   getSchemaErd: (id, schema) => request(`/oracle/${id}/erd/${encodeURIComponent(schema)}`),
+  getIndexes: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/indexes`),
   getViewDDL: (id, schema, view) => request(`/oracle/${id}/views/${encodeURIComponent(schema)}/${encodeURIComponent(view)}/ddl`),
   getSource: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
   getObjectProperties: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}/properties`),
@@ -82,6 +83,9 @@ export const api = {
   },
 
   getBuildVersion: () => request('/build-version'),
+
+  getSessions: (id) => request(`/oracle/${id}/sessions`),
+  getLocks: (id) => request(`/oracle/${id}/locks`),
 
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
