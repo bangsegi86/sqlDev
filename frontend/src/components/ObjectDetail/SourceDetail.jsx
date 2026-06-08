@@ -72,6 +72,7 @@ export default function SourceDetail({ tab }) {
   const findInputRef = useRef(null);
   const syntaxTextareaRef = useRef(null);   // ref → SyntaxTextarea's inner <textarea>
   const findScrollRef = useRef(null);        // ref → read-only pre's scroll container
+  const replaceUndoRef = useRef(null);       // snapshot before last replace (for Ctrl+Z)
 
   const highlightedLines = useMemo(() => {
     const code = isFormatted ? formattedSource : source;
@@ -118,15 +119,17 @@ export default function SourceDetail({ tab }) {
   function replaceOne() {
     if (!editMode || !findMatches_.length) return;
     const m = findMatches_[findMatchIdx];
-    const ta = syntaxTextareaRef.current;
-    if (!ta) return;
-    ta.focus();
-    ta.setSelectionRange(m.start, m.end);
-    document.execCommand('insertText', false, replaceText);
+    replaceUndoRef.current = editedSource;
+    const next = editedSource.slice(0, m.start) + replaceText + editedSource.slice(m.end);
+    setEditedSource(next);
     requestAnimationFrame(() => {
-      const caret = m.start + replaceText.length;
-      ta.setSelectionRange(caret, caret);
-      const nm = findMatches(ta.value, findText, { caseSensitive: findCase, useRegex: findRegex });
+      const ta = syntaxTextareaRef.current;
+      if (ta) {
+        const caret = m.start + replaceText.length;
+        ta.setSelectionRange(caret, caret);
+        ta.focus();
+      }
+      const nm = findMatches(next, findText, { caseSensitive: findCase, useRegex: findRegex });
       const ni = Math.max(0, Math.min(findMatchIdx, nm.length - 1));
       setFindMatchIdx(ni);
       if (nm.length) scrollToFindMatch(ni, nm);
@@ -134,17 +137,10 @@ export default function SourceDetail({ tab }) {
   }
   function replaceAll() {
     if (!editMode || !findMatches_.length) return;
+    replaceUndoRef.current = editedSource;
     let result = '', last = 0;
     for (const m of findMatches_) { result += editedSource.slice(last, m.start) + replaceText; last = m.end; }
-    result += editedSource.slice(last);
-    const ta = syntaxTextareaRef.current;
-    if (ta) {
-      ta.focus();
-      ta.select();
-      document.execCommand('insertText', false, result);
-    } else {
-      setEditedSource(result);
-    }
+    setEditedSource(result + editedSource.slice(last));
     setFindMatchIdx(0);
   }
   function openFind(withReplace) {
@@ -455,8 +451,14 @@ export default function SourceDetail({ tab }) {
                     if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
                   }}
                   onKeyDown={e => {
-                    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); openFind(false); }
-                    if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); openFind(true); }
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); openFind(false); return; }
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); openFind(true); return; }
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && replaceUndoRef.current !== null) {
+                      e.preventDefault();
+                      const prev = replaceUndoRef.current;
+                      replaceUndoRef.current = null;
+                      setEditedSource(prev);
+                    }
                   }}
                   style={{ borderBottom: '1px solid var(--border)' }}
                 />

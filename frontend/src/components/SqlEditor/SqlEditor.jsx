@@ -182,6 +182,9 @@ export default function SqlEditor({ tab }) {
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
   const preRef = useRef(null);
+  // One-step undo snapshot for find & replace operations.
+  // Stored in a ref so it doesn't trigger re-renders. Cleared on any normal edit.
+  const replaceUndoRef = useRef(null);
 
   // Active line indicator — no scroll offset needed (div lives inside the scroll container)
   const [activeLine, setActiveLine] = useState(null);
@@ -234,35 +237,27 @@ export default function SqlEditor({ tab }) {
   function replaceOne() {
     const m = matches[matchIdx];
     if (!m) return;
-    const ta = textareaRef.current;
-    if (!ta) return;
-    // execCommand keeps the browser's native undo stack intact so Ctrl+Z works correctly.
-    // It fires onChange which updates React state (setSql + setHighlightedSql) normally.
-    ta.focus();
-    ta.setSelectionRange(m.start, m.end);
-    document.execCommand('insertText', false, replaceText);
+    replaceUndoRef.current = sql;   // save snapshot for Ctrl+Z
+    const next = sql.slice(0, m.start) + replaceText + sql.slice(m.end);
+    setSql(next);
+    setHighlightedSql(renderHighlighted(next, navigableNames, ''));
     const caret = m.start + replaceText.length;
     requestAnimationFrame(() => {
-      ta.setSelectionRange(caret, caret);
+      const ta = textareaRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(caret, caret); }
       scrollToPos(caret);
     });
   }
 
   function replaceAll() {
     if (!matches.length) return;
+    replaceUndoRef.current = sql;   // save snapshot for Ctrl+Z
     let result = '', last = 0;
     for (const m of matches) { result += sql.slice(last, m.start) + replaceText; last = m.end; }
     result += sql.slice(last);
     const count = matches.length;
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.focus();
-      ta.select();
-      document.execCommand('insertText', false, result);
-    } else {
-      setSql(result);
-      setHighlightedSql(renderHighlighted(result, navigableNames, ''));
-    }
+    setSql(result);
+    setHighlightedSql(renderHighlighted(result, navigableNames, ''));
     setMatchIdx(0);
     setAliasMsg(`${count}건 치환됨`);
     setTimeout(() => setAliasMsg(''), 2500);
@@ -550,6 +545,17 @@ export default function SqlEditor({ tab }) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'h' || e.key === 'H')) {
       e.preventDefault(); openFind(true); return;
     }
+    // Ctrl+Z: if there's a replace-operation snapshot, restore it first.
+    // Once consumed, subsequent Ctrl+Z uses the browser's native undo.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && replaceUndoRef.current !== null) {
+      e.preventDefault();
+      const prev = replaceUndoRef.current;
+      replaceUndoRef.current = null;
+      setSql(prev);
+      setHighlightedSql(renderHighlighted(prev, navigableNames, ''));
+      requestAnimationFrame(() => { textareaRef.current?.focus(); });
+      return;
+    }
 
     // Autocomplete trigger: Ctrl+Space
     if (e.ctrlKey && e.key === ' ') {
@@ -596,6 +602,7 @@ export default function SqlEditor({ tab }) {
   function handleChange(e) {
     const newSql = e.target.value;
     setSql(newSql);
+    replaceUndoRef.current = null;   // normal edit → discard replace undo snapshot
     if (hlWordRef.current) { hlWordRef.current = ''; setHlWord(''); }
     // Update highlight in the same render cycle as setSql so there is no
     // visible delay between typing and characters appearing in the editor.
