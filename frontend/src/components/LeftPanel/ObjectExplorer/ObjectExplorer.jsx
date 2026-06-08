@@ -63,17 +63,15 @@ export default function ObjectExplorer() {
   const [schemaFilter, setSchemaFilter] = useState('');
   const [objectFilter, setObjectFilter] = useState('');
   const [filterCollapsed, setFilterCollapsed] = useState(new Set());
-  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, schema }
+  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, type, name, isSchema? }
+  const [specModal, setSpecModal] = useState(null); // { schema, tables[] }
+  const [scriptModal, setScriptModal] = useState(null); // { schema, type, names[] }
 
   // Multi-select: scoped to same schema + same type
   // { schema: string|null, type: string|null, names: Set<string> }
   const [sel, setSel] = useState({ schema: null, type: null, names: new Set() });
   const selRef = useRef(sel);
   selRef.current = sel;
-
-  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, type, name, isSchema? }
-  const [specModal, setSpecModal] = useState(null); // { schema, tables[] }
-  const [scriptModal, setScriptModal] = useState(null); // { schema, type, names[] }
 
   // Anchor for Shift+click range-select: { schema, type, name }
   const lastSelRef = useRef(null);

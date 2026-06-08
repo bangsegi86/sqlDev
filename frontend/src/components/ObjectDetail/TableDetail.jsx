@@ -53,7 +53,6 @@ export default function TableDetail({ tab }) {
         {activeTab === 'indexes' && <IndexesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'data' && <DataTab connectionId={tab.connectionId} schema={schema} tableName={name} objectType={objectType} />}
         {activeTab === 'ddl' && <DdlTab connectionId={tab.connectionId} schema={schema} name={name} objectType={objectType} />}
-        {activeTab === 'indexes' && <IndexesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'references' && <ReferencesTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
         {activeTab === 'sqlgen' && <SqlGenTab connectionId={tab.connectionId} schema={schema} tableName={name} />}
       </div>
