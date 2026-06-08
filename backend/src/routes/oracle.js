@@ -181,6 +181,25 @@ router.post('/:id/explain/analyze', wrap(async (req, res) => {
   res.json(analyzePlan(plan));
 }));
 
+// ── 트랜잭션 관리
+router.post('/:id/transaction/begin', wrap(async (req, res) => {
+  res.json(await oracle.beginTransaction(req.params.id));
+}));
+
+router.post('/:id/transaction/:txId/execute', wrap(async (req, res) => {
+  const { sql, binds } = req.body;
+  if (!sql) return res.status(400).json({ error: 'sql is required' });
+  res.json(await oracle.executeInTransaction(req.params.txId, sql, binds || {}));
+}));
+
+router.post('/:id/transaction/:txId/commit', wrap(async (req, res) => {
+  res.json(await oracle.commitTransaction(req.params.txId));
+}));
+
+router.post('/:id/transaction/:txId/rollback', wrap(async (req, res) => {
+  res.json(await oracle.rollbackTransaction(req.params.txId));
+}));
+
 // ── 글로벌 오브젝트 검색
 router.get('/:id/search', wrap(async (req, res) => {
   const { schema, q, types } = req.query;

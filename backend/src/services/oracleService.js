@@ -1017,6 +1017,54 @@ export async function executeRaw(id, sql, params = {}) {
   return execute(id, sql, params);
 }
 
+// ── 트랜잭션 관리 (Thin/Thick 모드 전용) ──
+const transactions = new Map(); // txId → { conn, id }
+
+export async function beginTransaction(id) {
+  const entry = pools.get(id);
+  if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+  if (entry.type === 'jdbc') throw Object.assign(new Error('트랜잭션 제어는 JDBC 모드에서 지원되지 않습니다'), { status: 400 });
+
+  const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const conn = await entry.pool.getConnection();
+  transactions.set(txId, { conn, id });
+  return { txId };
+}
+
+export async function executeInTransaction(txId, sql, binds = {}) {
+  const tx = transactions.get(txId);
+  if (!tx) throw Object.assign(new Error('트랜잭션을 찾을 수 없습니다'), { status: 404 });
+  const result = await tx.conn.execute(sql, binds, {
+    autoCommit: false,
+    outFormat: oracledb.OUT_FORMAT_OBJECT,
+  });
+  return { rowsAffected: result.rowsAffected ?? 0 };
+}
+
+export async function commitTransaction(txId) {
+  const tx = transactions.get(txId);
+  if (!tx) throw Object.assign(new Error('트랜잭션을 찾을 수 없습니다'), { status: 404 });
+  try {
+    await tx.conn.commit();
+  } finally {
+    await tx.conn.close().catch(() => {});
+    transactions.delete(txId);
+  }
+  return { success: true };
+}
+
+export async function rollbackTransaction(txId) {
+  const tx = transactions.get(txId);
+  if (!tx) throw Object.assign(new Error('트랜잭션을 찾을 수 없습니다'), { status: 404 });
+  try {
+    await tx.conn.rollback();
+  } finally {
+    await tx.conn.close().catch(() => {});
+    transactions.delete(txId);
+  }
+  return { success: true };
+}
+
 process.on('SIGTERM', async () => {
   for (const [, entry] of pools) {
     try { await entry.pool.close(0); } catch {}

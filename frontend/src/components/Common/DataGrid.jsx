@@ -12,6 +12,7 @@ export default function DataGrid({
   editableColumns,      // Set or array of column names that can be edited
   primaryKeyColumns,    // array of PK column names needed for WHERE clause
   onCellEdit,          // callback(rowIdx, col, oldValue, newValue)
+  pendingCellKeys,      // Set of "${rowIdx}::${col}" keys to highlight as pending
 }) {
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -186,6 +187,7 @@ export default function DataGrid({
                   onCellDoubleClick={handleCellDoubleClick}
                   onEditCommit={handleEditCommit}
                   onEditCancel={handleEditCancel}
+                  pendingCellKeys={pendingCellKeys}
                 />
               );
             })}
@@ -279,6 +281,7 @@ const DataRow = React.memo(function DataRow({
   editableSet, editCell,
   onCellClick, onCellDoubleClick,
   onEditCommit, onEditCancel,
+  pendingCellKeys,
 }) {
   const rowBg = isRowSel
     ? 'rgba(79,193,255,0.16)'
@@ -295,18 +298,23 @@ const DataRow = React.memo(function DataRow({
         const isSelCell = isRowSel && isSelCol;
         const isEditing = editCell && editCell.rowIdx === index && editCell.col === col;
         const canEdit = editableSet.has(col);
+        const isPending = pendingCellKeys?.has(`${index}::${col}`);
 
         return (
           <td
             key={col}
             style={{
               ...TD_DATA,
-              background: isSelCell
-                ? 'rgba(79,193,255,0.32)'
-                : isSelCol
-                  ? 'rgba(79,193,255,0.08)'
-                  : undefined,
-              boxShadow: isSelCell ? 'inset 0 0 0 1px rgba(79,193,255,0.7)' : undefined,
+              background: isPending
+                ? 'rgba(255,200,60,0.18)'
+                : isSelCell
+                  ? 'rgba(79,193,255,0.32)'
+                  : isSelCol
+                    ? 'rgba(79,193,255,0.08)'
+                    : undefined,
+              boxShadow: isPending
+                ? 'inset 0 0 0 1px rgba(255,200,60,0.6)'
+                : isSelCell ? 'inset 0 0 0 1px rgba(79,193,255,0.7)' : undefined,
               cursor: canEdit ? 'text' : 'default',
             }}
             onClick={() => onCellClick(index, col)}

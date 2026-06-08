@@ -64,6 +64,15 @@ export const api = {
   executeDml: (id, sql, binds) =>
     request(`/oracle/${id}/execute-dml`, { method: 'POST', body: { sql, binds } }),
 
+  beginTransaction: (id) =>
+    request(`/oracle/${id}/transaction/begin`, { method: 'POST' }),
+  executeInTransaction: (id, txId, sql, binds) =>
+    request(`/oracle/${id}/transaction/${txId}/execute`, { method: 'POST', body: { sql, binds } }),
+  commitTransaction: (id, txId) =>
+    request(`/oracle/${id}/transaction/${txId}/commit`, { method: 'POST' }),
+  rollbackTransaction: (id, txId) =>
+    request(`/oracle/${id}/transaction/${txId}/rollback`, { method: 'POST' }),
+
   getSessions: (id) => request(`/oracle/${id}/sessions`),
   getLocks: (id) => request(`/oracle/${id}/locks`),
 
