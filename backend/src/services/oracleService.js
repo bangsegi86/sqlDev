@@ -961,6 +961,28 @@ export async function explainSQL(id, sql, schema) {
   }
 }
 
+// ── DML 단일 문장 실행 (UPDATE / INSERT / DELETE) ──
+export async function executeDml(id, sql, binds = {}) {
+  const entry = pools.get(id);
+  if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
+
+  if (entry.type === 'jdbc') {
+    const result = await jdbcExecute(id, sql, binds);
+    return { rowsAffected: result.rowsAffected || 0 };
+  }
+
+  const conn = await entry.pool.getConnection();
+  try {
+    const result = await conn.execute(sql, binds, {
+      autoCommit: true,
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
+    return { rowsAffected: result.rowsAffected };
+  } finally {
+    await conn.close();
+  }
+}
+
 process.on('SIGTERM', async () => {
   for (const [, entry] of pools) {
     try { await entry.pool.close(0); } catch {}

@@ -158,6 +158,12 @@ router.get('/:id/analyze/:schema/:type/:name', wrap(async (req, res) => {
   res.json(result);
 }));
 
+// ── DML 실행 (UPDATE / INSERT / DELETE)
+router.post('/:id/execute-dml', wrap(async (req, res) => {
+  const { sql, binds } = req.body;
+  if (!sql) return res.status(400).json({ error: 'sql is required' });
+  res.json(await oracle.executeDml(req.params.id, sql, binds || {}));
+}));
 
 // ── 테이블 명세서 내보내기 (Excel / PDF)
 router.post('/:id/table-spec/export', wrap(async (req, res) => {

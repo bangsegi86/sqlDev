@@ -8,6 +8,10 @@ export default function DataGrid({
   rowOffset = 0,
   onLoadMore, hasMore = false, loadingMore = false,
   loading = false,
+  // Inline editing props (optional)
+  editableColumns,      // Set or array of column names that can be edited
+  primaryKeyColumns,    // array of PK column names needed for WHERE clause
+  onCellEdit,          // callback(rowIdx, col, oldValue, newValue)
 }) {
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -17,6 +21,13 @@ export default function DataGrid({
   const [selRow, setSelRow] = useState(null);
   const [selCol, setSelCol] = useState(null);
   const [allSel, setAllSel] = useState(false);
+  // editCell: { rowIdx, col } | null
+  const [editCell, setEditCell] = useState(null);
+
+  // Normalize editableColumns to a Set
+  const editableSet = editableColumns
+    ? (editableColumns instanceof Set ? editableColumns : new Set(editableColumns))
+    : new Set();
 
   const handleCellClick = useCallback((rowIdx, col) => {
     setSelRow(rowIdx);
@@ -25,7 +36,30 @@ export default function DataGrid({
     containerRef.current?.focus();
   }, []);
 
+  const handleCellDoubleClick = useCallback((rowIdx, col) => {
+    if (editableSet.has(col)) {
+      setEditCell({ rowIdx, col });
+      setSelRow(rowIdx);
+      setSelCol(col);
+      setAllSel(false);
+    }
+  }, [editableSet]);
+
+  const handleEditCommit = useCallback((rowIdx, col, oldVal, newVal) => {
+    setEditCell(null);
+    if (oldVal !== newVal && onCellEdit) {
+      onCellEdit(rowIdx, col, oldVal, newVal);
+    }
+  }, [onCellEdit]);
+
+  const handleEditCancel = useCallback(() => {
+    setEditCell(null);
+  }, []);
+
   function handleKeyDown(e) {
+    // Don't intercept keyboard when editing a cell
+    if (editCell) return;
+
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
       e.preventDefault();
       setAllSel(true);
@@ -38,7 +72,7 @@ export default function DataGrid({
       // 단일 셀이 선택된 경우 → 셀 값을 plain text로 복사
       if (selRow !== null && selCol !== null) {
         e.preventDefault();
-        const val = rows[selRow][selCol];
+        const val = rows[selRow]?.[selCol];
         const text = val == null ? '' : String(val);
         navigator.clipboard.writeText(text).catch(() => {});
       }
@@ -146,7 +180,12 @@ export default function DataGrid({
                   rowOffset={rowOffset}
                   isRowSel={isRowSel}
                   selCol={selCol}
+                  editableSet={editableSet}
+                  editCell={editCell}
                   onCellClick={handleCellClick}
+                  onCellDoubleClick={handleCellDoubleClick}
+                  onEditCommit={handleEditCommit}
+                  onEditCancel={handleEditCancel}
                 />
               );
             })}
@@ -188,7 +227,59 @@ export default function DataGrid({
   );
 }
 
-const DataRow = React.memo(function DataRow({ row, columns, index, rowOffset, isRowSel, selCol, onCellClick }) {
+// Inline edit input component
+function EditInput({ value, onCommit, onCancel }) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value));
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  function handleKeyDown(e) {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      onCommit(draft);
+    } else if (e.key === 'Escape') {
+      onCancel();
+    }
+  }
+
+  function handleBlur() {
+    onCommit(draft);
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={handleBlur}
+      style={{
+        width: '100%',
+        boxSizing: 'border-box',
+        background: 'var(--input-bg, #1e1e2e)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--accent-bright, #4fc1ff)',
+        borderRadius: 2,
+        padding: '1px 4px',
+        fontSize: 12,
+        outline: 'none',
+      }}
+    />
+  );
+}
+
+const DataRow = React.memo(function DataRow({
+  row, columns, index, rowOffset,
+  isRowSel, selCol,
+  editableSet, editCell,
+  onCellClick, onCellDoubleClick,
+  onEditCommit, onEditCancel,
+}) {
   const rowBg = isRowSel
     ? 'rgba(79,193,255,0.16)'
     : (index % 2 === 1 ? 'rgba(255,255,255,0.03)' : 'transparent');
@@ -202,6 +293,9 @@ const DataRow = React.memo(function DataRow({ row, columns, index, rowOffset, is
         const val = row[col];
         const isSelCol = col === selCol;
         const isSelCell = isRowSel && isSelCol;
+        const isEditing = editCell && editCell.rowIdx === index && editCell.col === col;
+        const canEdit = editableSet.has(col);
+
         return (
           <td
             key={col}
@@ -213,10 +307,20 @@ const DataRow = React.memo(function DataRow({ row, columns, index, rowOffset, is
                   ? 'rgba(79,193,255,0.08)'
                   : undefined,
               boxShadow: isSelCell ? 'inset 0 0 0 1px rgba(79,193,255,0.7)' : undefined,
+              cursor: canEdit ? 'text' : 'default',
             }}
             onClick={() => onCellClick(index, col)}
+            onDoubleClick={() => onCellDoubleClick(index, col)}
           >
-            {val == null ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span> : String(val)}
+            {isEditing ? (
+              <EditInput
+                value={val}
+                onCommit={newVal => onEditCommit(index, col, val, newVal)}
+                onCancel={onEditCancel}
+              />
+            ) : (
+              val == null ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span> : String(val)
+            )}
           </td>
         );
       })}

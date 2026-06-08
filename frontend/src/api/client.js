@@ -54,6 +54,9 @@ export const api = {
   executeScript: (id, statements, schema) =>
     request(`/oracle/${id}/execute-script`, { method: 'POST', body: { statements, schema } }),
 
+  executeDml: (id, sql, binds) =>
+    request(`/oracle/${id}/execute-dml`, { method: 'POST', body: { sql, binds } }),
+
   // Table specification export → triggers a file download (xlsx | pdf)
   exportTableSpec: async (id, schema, tables, format) => {
     const res = await fetch(`${BASE}/oracle/${id}/table-spec/export`, {

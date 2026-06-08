@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api/client.js';
 import DataGrid from '../Common/DataGrid.jsx';
 
-export default function DataTab({ connectionId, schema, tableName }) {
+export default function DataTab({ connectionId, schema, tableName, objectType }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -12,6 +12,22 @@ export default function DataTab({ connectionId, schema, tableName }) {
   const [sortDir, setSortDir] = useState('ASC');
   const [filterInput, setFilterInput] = useState('');
   const [filter, setFilter] = useState('');
+
+  // PK columns for WHERE clause in UPDATE
+  const [pkColumns, setPkColumns] = useState([]);
+
+  const isTable = objectType === 'TABLE';
+
+  // Load PK columns when viewing a TABLE
+  useEffect(() => {
+    if (!isTable) return;
+    api.getColumns(connectionId, schema, tableName)
+      .then(cols => {
+        const pks = cols.filter(c => c.IS_PK).map(c => c.COLUMN_NAME);
+        setPkColumns(pks);
+      })
+      .catch(() => setPkColumns([]));
+  }, [connectionId, schema, tableName, isTable]);
 
   const load = useCallback(() => {
     setLoading(true); setError('');
@@ -43,6 +59,44 @@ export default function DataTab({ connectionId, schema, tableName }) {
     setPage(1);
   }
 
+  // Build inline-edit props only for TABLEs with PK columns
+  const editableColumns = isTable && pkColumns.length > 0 && data
+    ? new Set(data.columns.filter(c => !pkColumns.includes(c)))
+    : new Set();
+
+  async function handleCellEdit(rowIdx, col, oldVal, newVal) {
+    if (!data) return;
+    const row = data.rows[rowIdx];
+
+    // Build bind variables: :newVal plus one per PK column
+    const binds = { newVal: newVal === '' ? null : newVal };
+    const whereParts = pkColumns.map(pk => {
+      const bindName = `pk_${pk}`;
+      binds[bindName] = row[pk];
+      return `"${pk}" = :${bindName}`;
+    });
+
+    const sql = `UPDATE "${schema}"."${tableName}" SET "${col}" = :newVal WHERE ${whereParts.join(' AND ')}`;
+
+    const confirmed = window.confirm(`다음 SQL을 실행하시겠습니까?\n\n${sql}`);
+    if (!confirmed) return;
+
+    try {
+      await api.executeDml(connectionId, sql, binds);
+      // Update local row state to reflect the change
+      setData(prev => {
+        if (!prev) return prev;
+        const newRows = prev.rows.map((r, i) => {
+          if (i !== rowIdx) return r;
+          return { ...r, [col]: newVal === '' ? null : newVal };
+        });
+        return { ...prev, rows: newRows };
+      });
+    } catch (e) {
+      alert(`오류: ${e.message}`);
+    }
+  }
+
   const totalPages = data ? Math.ceil(data.total / limit) : 1;
 
   return (
@@ -68,6 +122,9 @@ export default function DataTab({ connectionId, schema, tableName }) {
           )}
         </div>
         {data && <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>총 {data.total.toLocaleString()}행</span>}
+        {isTable && pkColumns.length > 0 && (
+          <span style={{ color: 'var(--text-dim)', fontSize: 11, flexShrink: 0 }}>셀 더블클릭으로 편집</span>
+        )}
         {loading && <span className="spinner" />}
       </div>
 
@@ -87,6 +144,9 @@ export default function DataTab({ connectionId, schema, tableName }) {
           sortColumn={sortCol}
           sortDir={sortDir}
           rowOffset={(page - 1) * limit}
+          editableColumns={editableColumns}
+          primaryKeyColumns={pkColumns}
+          onCellEdit={handleCellEdit}
         />
       )}
 
