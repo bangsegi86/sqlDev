@@ -20,7 +20,7 @@ function getNodeTypeLabel(key) {
 
 export default function AnalyzerTab({ connectionId, schema, objectType, name }) {
   const [result, setResult] = useState(null);
-  const [copyMermaid, mermaidCopied] = useCopy();
+  const [copyMermaid, mermaidCopied] = useCopy();  // fallbackText unused in AnalyzerTab
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState(1);

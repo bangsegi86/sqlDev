@@ -9,15 +9,67 @@ import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
 
-// Isolated component — only this tiny element re-renders on copy, never the 1900-line source
+// Isolated copy button — owns its own state so re-renders never touch the source view.
+// Falls back to a modal textarea when the async Clipboard API is unavailable (HTTP/LAN).
 function CopyBtn({ getText }) {
-  const [copy, copied] = useCopy();
+  const [copy, copied, fallbackText, clearFallback] = useCopy();
+  const taRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (fallbackText && taRef.current) {
+      taRef.current.focus();
+      taRef.current.select();
+    }
+  }, [fallbackText]);
+
   return (
-    <button
-      className="btn-secondary"
-      onClick={() => copy(getText())}
-      style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
-    >{copied ? '✓ 복사됨' : '📋 복사'}</button>
+    <>
+      <button
+        className="btn-secondary"
+        onClick={() => copy(getText())}
+        style={{ padding: '2px 8px', fontSize: 11, minWidth: 56 }}
+      >{copied ? '✓ 복사됨' : '📋 복사'}</button>
+
+      {fallbackText && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={clearFallback}>
+          <div style={{
+            background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: 20, width: '70vw', maxWidth: 800,
+            display: 'flex', flexDirection: 'column', gap: 10,
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>
+                📋 소스 복사 — <span style={{ color: 'var(--accent-bright)' }}>Ctrl+C</span>를 눌러 복사하세요
+              </span>
+              <button
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 16 }}
+                onClick={clearFallback}
+              >✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+              HTTP 환경에서는 브라우저 보안 정책으로 자동 복사가 제한됩니다. 텍스트가 선택되어 있습니다.
+            </div>
+            <textarea
+              ref={taRef}
+              readOnly
+              value={fallbackText}
+              style={{
+                width: '100%', height: '50vh', resize: 'vertical',
+                fontFamily: 'var(--code-font)', fontSize: 12,
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', borderRadius: 4,
+                padding: 10, boxSizing: 'border-box',
+              }}
+              onKeyDown={e => { if (e.key === 'Escape') clearFallback(); }}
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 import { useCodeLookup } from '../../hooks/useCodeLookup.js';

@@ -1,58 +1,43 @@
 import { useState, useCallback } from 'react';
 
-// Copies text to clipboard with a textarea fallback for large content or
-// environments where the Clipboard API is unavailable / throws.
-export function copyText(text) {
-  if (!text) return Promise.resolve(false);
+// Copies text to clipboard using only the async Clipboard API.
+// document.execCommand('copy') is intentionally NOT used — it can crash
+// Chromium renderer processes when called with large text selections.
+//
+// Returns: { ok: true } on success, { ok: false, text } on failure so the
+// caller can show a fallback UI (e.g. a modal textarea for manual Ctrl+C).
+export async function copyText(text) {
+  if (!text) return { ok: false, text };
 
-  // The modern async Clipboard API requires a secure context (HTTPS or localhost).
-  // If we're NOT in a secure context, skip it entirely and run the synchronous
-  // legacy approach immediately — it must run within the user-gesture window,
-  // which it won't if we wait for an async Promise rejection to resolve first.
-  const canUseAsync =
-    window.isSecureContext !== false &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === 'function';
-
-  if (canUseAsync) {
-    return navigator.clipboard.writeText(text).then(
-      () => true,
-      () => Promise.resolve(legacyCopy(text)),  // also falls back synchronously
-    );
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return { ok: true };
+    } catch {
+      // Clipboard API refused (permission denied, non-secure context, etc.)
+    }
   }
-
-  // Synchronous path — guaranteed to run within the original user gesture
-  return Promise.resolve(legacyCopy(text));
+  return { ok: false, text };
 }
 
-function legacyCopy(text) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
-// React hook: returns [copy(text), copied] where `copied` is true for 1.5s after success
+// React hook: returns [copy(text), state]
+// state = { copied: bool, fallbackText: string|null }
+// When fallbackText is non-null the caller should show a textarea modal.
 export function useCopy() {
   const [copied, setCopied] = useState(false);
+  const [fallbackText, setFallbackText] = useState(null);
 
-  const copy = useCallback((text) => {
-    copyText(text).then(ok => {
-      if (ok) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }
-    }).catch(() => {});
+  const copy = useCallback(async (text) => {
+    const result = await copyText(text);
+    if (result.ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } else if (result.text) {
+      setFallbackText(result.text);
+    }
   }, []);
 
-  return [copy, copied];
+  const clearFallback = useCallback(() => setFallbackText(null), []);
+
+  return [copy, copied, fallbackText, clearFallback];
 }
