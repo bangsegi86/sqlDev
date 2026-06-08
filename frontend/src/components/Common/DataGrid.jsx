@@ -159,7 +159,7 @@ const DataRow = memo(function DataRow({ row, columns, index, rowOffset }) {
         const val = row[col];
         return (
           <td key={col} style={TD_DATA}>
-            {val === null || val === undefined ? <span className="null-val">(null)</span> : String(val)}
+            {val === null || val === undefined ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span> : String(val)}
           </td>
         );
       })}

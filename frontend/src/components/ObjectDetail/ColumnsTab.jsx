@@ -89,7 +89,7 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
               <td style={tdStyle({ fontWeight: col.IS_PK ? 700 : 400, color: col.IS_PK ? 'var(--pk-color)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>
                 {col.COLUMN_NAME}
               </td>
-              <td style={tdStyle({ color: 'var(--accent-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>{col.DATA_TYPE}</td>
+              <td style={tdStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>{renderTypeBadge(col.DATA_TYPE)}</td>
               <td style={tdStyle({ color: 'var(--text-secondary)' })}>
                 {col.DATA_PRECISION != null ? `${col.DATA_PRECISION}${col.DATA_SCALE ? `,${col.DATA_SCALE}` : ''}` : col.DATA_LENGTH}
               </td>
@@ -97,7 +97,7 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
                 {col.NULLABLE === 'Y' ? <span style={{ color: 'var(--text-dim)' }}>Y</span> : <span style={{ color: 'var(--danger)', fontWeight: 700 }}>N</span>}
               </td>
               <td style={tdStyle({ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>
-                {col.DATA_DEFAULT ?? <span className="null-val">(null)</span>}
+                {col.DATA_DEFAULT ?? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span>}
               </td>
               <td style={tdStyle({ textAlign: 'center' })}>
                 {col.IS_PK && <span className="tag-pk" title="Primary Key">PK</span>}
@@ -133,6 +133,24 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
       )}
     </div>
   );
+}
+
+function renderTypeBadge(dataType) {
+  if (!dataType) return dataType;
+  const t = dataType.toUpperCase();
+  let style;
+  if (['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR', 'CLOB', 'NCLOB'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(100,200,100,0.15)', color: '#7ec87e', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['NUMBER', 'INTEGER', 'FLOAT', 'BINARY_FLOAT', 'BINARY_DOUBLE'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(100,150,255,0.15)', color: '#7eb8f0', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['DATE', 'TIMESTAMP', 'INTERVAL'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(255,180,80,0.15)', color: '#f0c070', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['BLOB', 'RAW', 'LONG', 'XMLTYPE'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(255,100,100,0.15)', color: '#f07070', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else {
+    style = { color: 'var(--text-secondary)' };
+  }
+  return <span style={style}>{dataType}</span>;
 }
 
 const thStyle = { background: 'var(--bg-panel)', color: 'var(--text-secondary)', fontWeight: 600, padding: '5px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap', position: 'sticky', top: 0, userSelect: 'none' };
