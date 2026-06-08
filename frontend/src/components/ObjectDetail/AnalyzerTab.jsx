@@ -3,7 +3,7 @@ import { api } from '../../api/client.js';
 import MermaidChart from '../Common/MermaidChart.jsx';
 import SavePreviewModal from './SavePreviewModal.jsx';
 import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
-import { useCopy } from '../../utils/clipboard.js';
+import { useCopy, copyText } from '../../utils/clipboard.js';
 import { renderHighlighted } from '../../utils/sqlHighlight.js';
 import { formatSQL } from '../../utils/formatSQL.js';
 
@@ -486,7 +486,7 @@ export default function AnalyzerTab({ connectionId, schema, objectType, name }) 
                     title="줄 맞추기"
                   >≡</button>
                   <button
-                    onClick={() => navigator.clipboard?.writeText(selectedNode.code)}
+                    onClick={() => copyText(selectedNode.code).catch(() => {})}
                     style={{ fontSize: 11, padding: '2px 7px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 3, cursor: 'pointer' }}
                     title="복사"
                   >📋</button>

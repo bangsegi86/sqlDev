@@ -5,14 +5,23 @@ import { useState, useCallback } from 'react';
 export function copyText(text) {
   if (!text) return Promise.resolve(false);
 
-  // Modern Clipboard API
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+  // The modern async Clipboard API requires a secure context (HTTPS or localhost).
+  // If we're NOT in a secure context, skip it entirely and run the synchronous
+  // legacy approach immediately — it must run within the user-gesture window,
+  // which it won't if we wait for an async Promise rejection to resolve first.
+  const canUseAsync =
+    window.isSecureContext !== false &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function';
+
+  if (canUseAsync) {
     return navigator.clipboard.writeText(text).then(
       () => true,
-      () => legacyCopy(text),  // fall back on any error (quota, focus, permission)
+      () => Promise.resolve(legacyCopy(text)),  // also falls back synchronously
     );
   }
 
+  // Synchronous path — guaranteed to run within the original user gesture
   return Promise.resolve(legacyCopy(text));
 }
 
@@ -42,7 +51,7 @@ export function useCopy() {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }
-    });
+    }).catch(() => {});
   }, []);
 
   return [copy, copied];
