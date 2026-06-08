@@ -143,6 +143,35 @@ export async function getSchemas(id) {
   return r.rows.map(r => r.USERNAME);
 }
 
+export async function searchObjects(id, schema, q, types) {
+  const defaultTypes = ['TABLE', 'VIEW', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TRIGGER', 'SEQUENCE', 'SYNONYM'];
+  const rawTypes = (types && types.length > 0) ? types : defaultTypes;
+  const pattern = q.startsWith('*')
+    ? `%${q.slice(1).toUpperCase()}%`
+    : `${q.toUpperCase()}%`;
+
+  // oracledb does not support array binds in IN clauses; build placeholders manually
+  const placeholders = rawTypes.map((_, i) => `:type${i}`).join(', ');
+  const sql = `
+    SELECT OBJECT_NAME, OBJECT_TYPE, OWNER AS SCHEMA_NAME
+    FROM ALL_OBJECTS
+    WHERE OWNER = :schema
+      AND OBJECT_NAME LIKE :pattern
+      AND OBJECT_TYPE IN (${placeholders})
+      AND STATUS = 'VALID'
+    ORDER BY OBJECT_TYPE, OBJECT_NAME
+    FETCH FIRST 50 ROWS ONLY
+  `;
+  const binds = { schema, pattern };
+  rawTypes.forEach((t, i) => { binds[`type${i}`] = t; });
+  const r = await execute(id, sql, binds);
+  return r.rows.map(row => ({
+    objectName: row.OBJECT_NAME,
+    objectType: row.OBJECT_TYPE,
+    schemaName: row.SCHEMA_NAME,
+  }));
+}
+
 export async function getObjects(id, schema, type) {
   let sql, params = { schema };
   switch (type) {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { AppProvider, useApp, openTab } from './store/AppContext.jsx';
 import LeftPanel from './components/LeftPanel/LeftPanel.jsx';
 import RightPanel from './components/RightPanel/RightPanel.jsx';
@@ -6,12 +6,59 @@ import StatusBar from './components/Common/StatusBar.jsx';
 import SettingsModal from './components/Settings/SettingsModal.jsx';
 import BuildUpdateBanner from './components/Common/BuildUpdateBanner.jsx';
 import ShortcutsModal from './components/Common/ShortcutsModal.jsx';
+import GlobalSearch from './components/Common/GlobalSearch.jsx';
 
 function Layout() {
-  const { state } = useApp();
-  const { leftCollapsed } = state;
+  const { state, dispatch } = useApp();
+  const { leftCollapsed, tabs } = state;
   const [leftWidth, setLeftWidth] = useState(240);
+  const [showSearch, setShowSearch] = useState(false);
   const isDragging = useRef(false);
+
+  // Track last closed tabs for Ctrl+Shift+T (reopen)
+  const closedTabsRef = useRef([]);
+  const prevTabsRef = useRef(tabs);
+
+  useEffect(() => {
+    const prev = prevTabsRef.current;
+    if (prev.length > tabs.length) {
+      // Find which tabs were removed
+      const removed = prev.filter(pt => !tabs.find(t => t.id === pt.id));
+      removed.forEach(tab => {
+        closedTabsRef.current = [tab, ...closedTabsRef.current].slice(0, 5);
+      });
+    }
+    prevTabsRef.current = tabs;
+  }, [tabs]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function onKeyDown(e) {
+      // Ctrl+P / Cmd+P — global search
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'p') {
+        e.preventDefault();
+        setShowSearch(s => !s);
+        return;
+      }
+      // Escape — close search
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false);
+        return;
+      }
+      // Ctrl+Shift+T — reopen last closed tab
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        const last = closedTabsRef.current[0];
+        if (last) {
+          closedTabsRef.current = closedTabsRef.current.slice(1);
+          openTab(dispatch, state, last);
+        }
+        return;
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dispatch, state, showSearch]);
 
   function onDividerMouseDown(e) {
     e.preventDefault();
@@ -42,6 +89,7 @@ function Layout() {
       </div>
       <StatusBar />
       <BuildUpdateBanner />
+      {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
     </div>
   );
 }

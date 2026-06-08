@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useApp, openTab } from '../../store/AppContext.jsx';
 
-const TYPE_ICONS = { sql: '⊢', table: '▦', source: '{}', sequence: '∞', synonym: '≡', monitor: '📊' };
+const TYPE_ICONS = { sql: '⊢', table: '▦', source: '{}', sequence: '∞', synonym: '≡', erd: '🔗', monitor: '📊' };
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 
@@ -55,31 +55,34 @@ function TabListDropdown({ tabs, activeTabId, anchor, onSelect, onClose, onClose
       {tabs.length === 0 && (
         <div style={{ padding: '8px 12px', color: 'var(--text-dim)', fontSize: 12 }}>열린 탭 없음</div>
       )}
-      {tabs.map(tab => (
-        <div
-          key={tab.id}
-          onClick={() => { onSelect(tab.id); onDismiss(); }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 10px', cursor: 'pointer', fontSize: 12,
-            background: tab.id === activeTabId ? 'var(--bg-selected)' : 'transparent',
-            color: tab.id === activeTabId ? '#fff' : 'var(--text-primary)',
-          }}
-          onMouseEnter={e => { if (tab.id !== activeTabId) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-          onMouseLeave={e => { if (tab.id !== activeTabId) e.currentTarget.style.background = 'transparent'; }}
-        >
-          <span style={{ color: 'var(--text-dim)', fontSize: 11, flexShrink: 0 }}>
-            {TYPE_ICONS[tab.type] || '○'}
-          </span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tab.title}
-          </span>
-          <button
-            onClick={e => { e.stopPropagation(); onClose(tab.id); }}
-            style={{ background: 'none', color: 'var(--text-dim)', fontSize: 13, padding: '0 2px', flexShrink: 0, lineHeight: 1 }}
-          >×</button>
-        </div>
-      ))}
+      {tabs.map(tab => {
+        const isActive = tab.id === activeTabId;
+        return (
+          <div
+            key={tab.id}
+            onClick={() => { onSelect(tab.id); onDismiss(); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 10px', cursor: 'pointer', fontSize: 12,
+              background: isActive ? 'var(--bg-selected)' : 'transparent',
+              color: isActive ? '#fff' : 'var(--text-primary)',
+            }}
+            onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <span style={{ width: 14, flexShrink: 0, color: isActive ? '#fff' : 'var(--accent-bright)', fontSize: 11, textAlign: 'center' }}>
+              {isActive ? '✓' : TYPE_ICONS[tab.type] || '○'}
+            </span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tab.title}
+            </span>
+            <button
+              onClick={e => { e.stopPropagation(); onClose(tab.id); }}
+              style={{ background: 'none', color: isActive ? 'rgba(255,255,255,0.7)' : 'var(--text-dim)', fontSize: 13, padding: '0 2px', flexShrink: 0, lineHeight: 1 }}
+            >×</button>
+          </div>
+        );
+      })}
       {tabs.length > 0 && (
         <>
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
@@ -244,17 +247,19 @@ export default function TabBar() {
       {/* ▸ scroll right */}
       {navBtn(canScrollRight, '오른쪽으로 이동', '›', () => canScrollRight && scroll(1))}
 
-      {/* ≡ tab list */}
+      {/* ▼ tab overflow dropdown — always visible but dim when no overflow */}
       <button
         ref={listBtnRef}
         onClick={openList}
-        title="탭 목록"
+        title="탭 목록 (▼)"
         style={{
           padding: '0 10px', background: listOpen ? 'var(--bg-hover)' : 'none',
-          color: 'var(--text-secondary)', fontSize: 15, flexShrink: 0,
+          color: (canScrollLeft || canScrollRight || tabs.length > 0) ? 'var(--text-secondary)' : 'var(--text-dim)',
+          fontSize: 12, flexShrink: 0,
           borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)',
+          opacity: (canScrollLeft || canScrollRight || listOpen) ? 1 : 0.5,
         }}
-      >≡</button>
+      >▼</button>
 
       {/* + new tab */}
       <button
