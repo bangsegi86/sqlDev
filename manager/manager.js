@@ -14,7 +14,7 @@ import http from 'http';
 import { spawn, exec } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, statSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, statSync, readdirSync, watch } from 'fs';
 import { networkInterfaces } from 'os';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +104,33 @@ function stopServer(onExit) {
   return { ok: true, message: '서버를 종료했습니다.' };
 }
 
+// ── 빌드 신선도 캐시 + 파일 감시 ──
+// isBuildFresh()를 매 폴링마다 호출하는 대신, 파일 감시자가 변경을 즉시 감지한다.
+let cachedBuildFresh = isBuildFresh();
+
+(function watchSources() {
+  const dirs = [join(ROOT, 'frontend', 'src')];
+  const files = ['vite.config.js', 'vite.config.ts', 'package.json', 'index.html']
+    .map(n => join(ROOT, 'frontend', n))
+    .filter(existsSync);
+
+  function onChanged(label) {
+    if (!cachedBuildFresh) return;   // 이미 stale → 중복 로그 방지
+    cachedBuildFresh = false;
+    pushLog(`[관리자] 소스 변경 감지 (${label}) → 빌드가 필요합니다 🟡`, 'sys');
+  }
+
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    try {
+      watch(dir, { recursive: true }, (ev, fn) => onChanged(fn || dir));
+    } catch {}
+  }
+  for (const f of files) {
+    try { watch(f, () => onChanged(f)); } catch {}
+  }
+})();
+
 // ── 프론트엔드 빌드 ──
 let building = false;
 function runBuild() {
@@ -126,9 +153,10 @@ function runBuild() {
   proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => pushLog(l, 'err')));
   proc.on('exit', code => {
     building = false;
+    cachedBuildFresh = (code === 0);
     pushLog(code === 0 ? '[관리자] 빌드 완료 ✔' : `[관리자] 빌드 실패 (code ${code})`, 'sys');
   });
-  proc.on('error', e => { building = false; pushLog(`[관리자] 빌드 오류: ${e.message}`, 'err'); });
+  proc.on('error', e => { building = false; cachedBuildFresh = false; pushLog(`[관리자] 빌드 오류: ${e.message}`, 'err'); });
   return { ok: true, message: '빌드를 시작했습니다. 로그를 확인하세요.' };
 }
 
@@ -179,7 +207,7 @@ function status() {
     lastExit,
     building,
     hasBuild: existsSync(DIST_INDEX),
-    buildFresh: isBuildFresh(),
+    buildFresh: existsSync(DIST_INDEX) && cachedBuildFresh,
     hasNodeModules: existsSync(BACKEND_MODULES),
     managerPort: MANAGER_PORT,
     networkIPs: getNetworkIPs(),
