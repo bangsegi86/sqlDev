@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
 import { diagLog } from './diagLog.js';
 
-// Clipboard write limit: skip the async API for very large text.
-// navigator.clipboard.writeText() can cause renderer crashes in some Chromium
-// builds when given large payloads — fall through to the modal for safety.
-const CLIPBOARD_API_LIMIT = 60_000; // ~60 KB
-
 // Returns true on success, false on failure.
 // document.execCommand('copy') is intentionally NOT used — it crashes
 // Chromium renderer processes when called with large text selections.
+//
+// navigator.clipboard.writeText() is safe for large text (async, no render crash).
+// On non-secure contexts (HTTP/LAN) it throws — we catch and return false,
+// then the caller shows the off-screen fallback modal.
 export async function copyText(text) {
   if (!text) return false;
 
@@ -16,11 +15,7 @@ export async function copyText(text) {
   const kb  = (len / 1024).toFixed(1);
   diagLog(`[clipboard] copyText start  len=${len} (${kb} KB)`);
 
-  if (
-    len <= CLIPBOARD_API_LIMIT &&
-    navigator.clipboard &&
-    typeof navigator.clipboard.writeText === 'function'
-  ) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
     diagLog('[clipboard] path → navigator.clipboard.writeText');
     try {
       await navigator.clipboard.writeText(text);
@@ -30,10 +25,7 @@ export async function copyText(text) {
       diagLog(`[clipboard] writeText FAILED: ${err?.name} ${err?.message}`);
     }
   } else {
-    const reason = len > CLIPBOARD_API_LIMIT
-      ? `len ${len} > limit ${CLIPBOARD_API_LIMIT}`
-      : 'clipboard API unavailable';
-    diagLog(`[clipboard] path → fallback modal  (${reason})`);
+    diagLog('[clipboard] path → fallback modal (clipboard API unavailable)');
   }
   return false;
 }
