@@ -18,8 +18,7 @@ import { diagLog } from '../../utils/diagLog.js';
 // a 185KB selection highlight — that was the renderer crash root cause.
 // The user presses Ctrl+C while the "ready" modal is visible; the off-screen
 // element holds focus and the selection, so Ctrl+C copies the full text.
-function CopyBtn({ getText }) {
-  const [copy, copied, showFallback, clearFallback, fallbackTextRef] = useCopy();
+function CopyBtn({ getText, copy, copied, showFallback, clearFallback, fallbackTextRef }) {
   const offscreenRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -114,7 +113,7 @@ export default function SourceDetail({ tab }) {
   const [editedSource, setEditedSource] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [isFormatted, setIsFormatted] = useState(false);
-  // CopyBtn below owns the `copied` state — do NOT hoist it here
+  const [copy, copied, showFallback, clearFallback, fallbackTextRef] = useCopy();
   const [formattedSource, setFormattedSource] = useState('');
   const [props, setProps] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -470,7 +469,12 @@ export default function SourceDetail({ tab }) {
             )}
             {/* Top toolbar */}
             <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <CopyBtn getText={() => editMode ? editedSource : (isFormatted ? formattedSource : source)} />
+              <CopyBtn
+                getText={() => editMode ? editedSource : (isFormatted ? formattedSource : source)}
+                copy={copy} copied={copied}
+                showFallback={showFallback} clearFallback={clearFallback}
+                fallbackTextRef={fallbackTextRef}
+              />
               <button
                 className="btn-secondary"
                 style={{ padding: '2px 8px', fontSize: 11 }}
@@ -574,14 +578,16 @@ export default function SourceDetail({ tab }) {
                       if (word && /^[\w$#]+$/.test(word)) setHlWord(word);
                       else setHlWord('');
                     }}
-                    onKeyDown={e => { if (e.key === 'Escape') setHlWord(''); }}
-                    onCopy={e => {
-                      // Prevent Chrome from serializing thousands of span elements to HTML
-                      // (causes renderer crash for large sources). Write plain text only.
-                      const sel = window.getSelection()?.toString();
-                      if (sel) {
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') { setHlWord(''); return; }
+                      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+                        // Get selection text NOW — in keydown, before Chrome starts HTML serialization.
+                        // getSelection().toString() is safe (plain text traversal, not HTML).
+                        const sel = window.getSelection()?.toString() ?? '';
+                        // Prevent Chrome from serializing 22k span elements → renderer crash.
                         e.preventDefault();
-                        e.clipboardData.setData('text/plain', sel);
+                        const text = sel.length > 0 ? sel : (isFormatted ? formattedSource : source);
+                        copy(text);
                       }
                     }}
                     tabIndex={-1}
