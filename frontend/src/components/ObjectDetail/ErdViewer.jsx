@@ -42,7 +42,7 @@ export default function ErdViewer({ tab }) {
   const [zoom, setZoom] = useState(1);
   const [filter, setFilter] = useState('');
   const [hover, setHover] = useState(null);   // hovered table name
-  const dragRef = useRef(null);
+  const [focusedTable, setFocusedTable] = useState(null); // focus mode table name
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -55,7 +55,7 @@ export default function ErdViewer({ tab }) {
   // Tables relevant to the filter (highlight, not hide)
   const f = filter.trim().toLowerCase();
 
-  // Adjacency for highlight on hover
+  // Adjacency for highlight on hover and focus mode
   const adjacency = useMemo(() => {
     const m = {};
     if (data) for (const e of data.edges) {
@@ -64,6 +64,14 @@ export default function ErdViewer({ tab }) {
     }
     return m;
   }, [data]);
+
+  // Focus mode: set of visible tables (focused + direct FK neighbors)
+  const focusVisibleSet = useMemo(() => {
+    if (!focusedTable) return null;
+    const s = new Set([focusedTable]);
+    (adjacency[focusedTable] || new Set()).forEach(n => s.add(n));
+    return s;
+  }, [focusedTable, adjacency]);
 
   function onHeaderMouseDown(e, name) {
     e.preventDefault();
@@ -143,6 +151,13 @@ export default function ErdViewer({ tab }) {
           onChange={e => setFilter(e.target.value)}
           style={{ marginLeft: 8, width: 160, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '3px 8px', outline: 'none' }}
         />
+        {focusedTable && (
+          <button
+            className="btn-secondary"
+            style={{ padding: '2px 10px', fontSize: 11, background: 'rgba(79,193,255,0.15)', borderColor: 'var(--accent)' }}
+            onClick={() => setFocusedTable(null)}
+          >전체 보기</button>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           <button className="btn-secondary" style={zBtn} onClick={() => setZoom(z => Math.max(0.3, +(z - 0.1).toFixed(2)))}>－</button>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 40, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
@@ -165,7 +180,9 @@ export default function ErdViewer({ tab }) {
               {data.edges.map((e, i) => {
                 const d = edgePath(e.from, e.to);
                 if (!d) return null;
-                const dim = highlightSet && !(highlightSet.has(e.from) && highlightSet.has(e.to));
+                const dimByHover = highlightSet && !(highlightSet.has(e.from) && highlightSet.has(e.to));
+                const dimByFocus = focusVisibleSet && !(focusVisibleSet.has(e.from) && focusVisibleSet.has(e.to));
+                const dim = dimByHover || dimByFocus;
                 return (
                   <path key={i} d={d} fill="none"
                     stroke={dim ? 'rgba(120,120,130,0.25)' : 'var(--accent)'}
@@ -179,7 +196,11 @@ export default function ErdViewer({ tab }) {
             {data.tables.map(t => {
               const p = positions[t.name] || { x: 0, y: 0 };
               const isMatch = f && t.name.toLowerCase().includes(f);
-              const dim = (f && !isMatch) || (highlightSet && !highlightSet.has(t.name));
+              const isFocused = focusedTable === t.name;
+              const dimByFilter = f && !isMatch;
+              const dimByHover = highlightSet && !highlightSet.has(t.name);
+              const dimByFocus = focusVisibleSet && !focusVisibleSet.has(t.name);
+              const dim = dimByFilter || dimByHover || dimByFocus;
               return (
                 <div
                   key={t.name}
@@ -188,9 +209,11 @@ export default function ErdViewer({ tab }) {
                   style={{
                     position: 'absolute', left: p.x, top: p.y, width: BOX_W,
                     background: 'var(--bg-panel)',
-                    border: `1px solid ${isMatch ? 'var(--accent-bright)' : 'var(--border)'}`,
-                    borderRadius: 6, zIndex: 1, opacity: dim ? 0.35 : 1,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)', overflow: 'hidden',
+                    border: `1px solid ${isMatch || isFocused ? 'var(--accent-bright)' : 'var(--border)'}`,
+                    borderRadius: 6, zIndex: 1, opacity: dim ? 0.2 : 1,
+                    boxShadow: isFocused ? '0 0 0 2px var(--accent-bright), 0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.3)',
+                    overflow: 'hidden',
+                    transition: 'opacity 0.15s',
                   }}
                 >
                   <div
@@ -199,13 +222,22 @@ export default function ErdViewer({ tab }) {
                     title="드래그: 이동 · 더블클릭: 테이블 열기"
                     style={{
                       height: HEADER_H, display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px',
-                      background: isMatch ? 'rgba(79,193,255,0.22)' : 'rgba(79,193,255,0.10)',
+                      background: isFocused ? 'rgba(79,193,255,0.30)' : isMatch ? 'rgba(79,193,255,0.22)' : 'rgba(79,193,255,0.10)',
                       borderBottom: '1px solid var(--border)', cursor: 'grab', userSelect: 'none',
                       fontWeight: 700, fontSize: 12, color: 'var(--text-primary)',
                     }}
                   >
                     <span style={{ color: 'var(--accent-bright)' }}>▦</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</span>
+                    <button
+                      title="이 테이블 중심으로 보기"
+                      onClick={e => { e.stopPropagation(); setFocusedTable(isFocused ? null : t.name); }}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
+                        fontSize: 13, opacity: isFocused ? 1 : 0.5, color: 'var(--accent-bright)',
+                        lineHeight: 1, flexShrink: 0,
+                      }}
+                    >🎯</button>
                   </div>
                   <div>
                     {t.columns.map(c => (

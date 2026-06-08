@@ -23,6 +23,11 @@ export const api = {
   reconnect: (id) => request(`/oracle/reconnect/${id}`, { method: 'POST' }),
   getStatus: () => request('/oracle/status'),
 
+  searchObjects: (id, schema, q, types) => {
+    const params = new URLSearchParams({ schema, q });
+    if (types) params.set('types', types);
+    return request(`/oracle/${id}/search?${params}`);
+  },
   getSchemas: (id) => request(`/oracle/${id}/schemas`),
   getObjects: (id, schema, type) => request(`/oracle/${id}/objects?schema=${encodeURIComponent(schema)}&type=${type}`),
   getColumns: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/columns`),

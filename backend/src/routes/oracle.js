@@ -149,6 +149,15 @@ router.post('/:id/explain/analyze', wrap(async (req, res) => {
   res.json(analyzePlan(plan));
 }));
 
+// ── 글로벌 오브젝트 검색
+router.get('/:id/search', wrap(async (req, res) => {
+  const { schema, q, types } = req.query;
+  if (!schema || !q) return res.status(400).json({ error: 'schema and q are required' });
+  const typeList = types ? types.split(',').map(t => t.trim().toUpperCase()).filter(Boolean) : [];
+  const results = await oracle.searchObjects(req.params.id, schema, q, typeList);
+  res.json({ results });
+}));
+
 // ── PL/SQL 분석기
 router.get('/:id/analyze/:schema/:type/:name', wrap(async (req, res) => {
   const { id, schema, type, name } = req.params;
