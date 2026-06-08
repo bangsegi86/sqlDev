@@ -26,6 +26,15 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const [txStatus, setTxStatus] = useState('idle'); // idle | executing | pending_commit | committing | rolling_back
   const [txResults, setTxResults] = useState([]); // { sql, rowsAffected?, error? }
 
+  // Toast notification
+  const [toast, setToast] = useState(null); // { msg, type: 'success'|'error' }
+  const toastTimerRef = useRef(null);
+  function showToast(msg, type = 'success') {
+    clearTimeout(toastTimerRef.current);
+    setToast({ msg, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+  }
+
   const isTable = objectType === 'TABLE';
   const hasPk = pkColumns.length > 0;
   const canEdit = isTable && hasPk;
@@ -135,17 +144,17 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     let jdbcMode = false;
     let newTxId;
     try {
-      const { txId: id } = await api.beginTransaction(connectionId);
-      newTxId = id;
-      setTxId(id);
-    } catch (e) {
-      if (e.message.includes('JDBC')) {
+      const res = await api.beginTransaction(connectionId);
+      if (res.jdbcMode) {
         jdbcMode = true;
       } else {
-        setTxStatus('idle');
-        alert(`트랜잭션 시작 실패: ${e.message}`);
-        return;
+        newTxId = res.txId;
+        setTxId(res.txId);
       }
+    } catch (e) {
+      setTxStatus('idle');
+      showToast(`트랜잭션 시작 실패: ${e.message}`, 'error');
+      return;
     }
 
     const results = [];
@@ -165,10 +174,16 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     setTxResults(results);
 
     if (jdbcMode) {
-      // autoCommit이므로 즉시 완료 처리
+      const total = results.reduce((s, r) => s + (r.rowsAffected ?? 0), 0);
+      const errCount = results.filter(r => r.error).length;
       setPendingChanges([]);
       setTxStatus('idle');
       load();
+      if (errCount > 0) {
+        showToast(`${results.length - errCount}건 저장, ${errCount}건 실패`, 'error');
+      } else {
+        showToast(`${total}건 저장되었습니다`, 'success');
+      }
     } else {
       setTxStatus('pending_commit');
     }
@@ -179,14 +194,15 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     setTxStatus('committing');
     try {
       await api.commitTransaction(connectionId, txId);
+      const total = txResults.reduce((s, r) => s + (r.rowsAffected ?? 0), 0);
       setTxId(null);
       setPendingChanges([]);
       setTxStatus('idle');
       setTxResults([]);
-      // Reload to confirm server-side state
       load();
+      showToast(`COMMIT 완료 — ${total}건 저장되었습니다`, 'success');
     } catch (e) {
-      alert(`COMMIT 실패: ${e.message}`);
+      showToast(`COMMIT 실패: ${e.message}`, 'error');
       setTxStatus('pending_commit');
     }
   }
@@ -199,11 +215,11 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
       setTxId(null);
       setTxStatus('idle');
       setTxResults([]);
-      // Revert grid to pre-execution state via reload
       setPendingChanges([]);
       load();
+      showToast('ROLLBACK 완료 — 변경사항이 취소되었습니다', 'error');
     } catch (e) {
-      alert(`ROLLBACK 실패: ${e.message}`);
+      showToast(`ROLLBACK 실패: ${e.message}`, 'error');
       setTxStatus('pending_commit');
     }
   }
@@ -220,7 +236,22 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const isBusy = txStatus === 'executing' || txStatus === 'committing' || txStatus === 'rolling_back';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+
+      {/* ── Toast ── */}
+      {toast && (
+        <div style={{
+          position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, padding: '8px 18px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+          background: toast.type === 'success' ? '#1e4d2b' : '#4d1e1e',
+          color: toast.type === 'success' ? '#7ec87e' : '#f07070',
+          border: `1px solid ${toast.type === 'success' ? '#3a7a4a' : '#7a3a3a'}`,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          pointerEvents: 'none',
+        }}>
+          {toast.type === 'success' ? '✓ ' : '✕ '}{toast.msg}
+        </div>
+      )}
 
       {/* ── Toolbar ── */}
       <div style={{

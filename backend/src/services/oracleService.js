@@ -1023,7 +1023,7 @@ const transactions = new Map(); // txId → { conn, id }
 export async function beginTransaction(id) {
   const entry = pools.get(id);
   if (!entry) throw Object.assign(new Error('Not connected'), { status: 400 });
-  if (entry.type === 'jdbc') throw Object.assign(new Error('트랜잭션 제어는 JDBC 모드에서 지원되지 않습니다'), { status: 400 });
+  if (entry.type === 'jdbc') return { jdbcMode: true };
 
   const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const conn = await entry.pool.getConnection();
