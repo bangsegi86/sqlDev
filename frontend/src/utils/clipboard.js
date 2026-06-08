@@ -11,17 +11,28 @@ const CLIPBOARD_API_LIMIT = 60_000; // ~60 KB
 export async function copyText(text) {
   if (!text) return false;
 
+  const len = text.length;
+  const kb  = (len / 1024).toFixed(1);
+  console.log(`[clipboard] copyText start  len=${len} (${kb} KB)`);
+
   if (
-    text.length <= CLIPBOARD_API_LIMIT &&
+    len <= CLIPBOARD_API_LIMIT &&
     navigator.clipboard &&
     typeof navigator.clipboard.writeText === 'function'
   ) {
+    console.log('[clipboard] path → navigator.clipboard.writeText');
     try {
       await navigator.clipboard.writeText(text);
+      console.log('[clipboard] writeText SUCCESS');
       return true;
-    } catch {
-      // Permission denied, non-secure context, etc.
+    } catch (err) {
+      console.warn('[clipboard] writeText FAILED:', err?.name, err?.message);
     }
+  } else {
+    const reason = len > CLIPBOARD_API_LIMIT
+      ? `len ${len} > limit ${CLIPBOARD_API_LIMIT}`
+      : 'clipboard API unavailable';
+    console.log(`[clipboard] path → fallback modal  (${reason})`);
   }
   return false;
 }
@@ -38,13 +49,17 @@ export function useCopy() {
   const fallbackTextRef = useRef('');
 
   const copy = useCallback(async (text) => {
+    console.log('[clipboard] useCopy.copy called');
     const ok = await copyText(text);
+    console.log('[clipboard] copyText returned:', ok);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } else if (text) {
+      console.log('[clipboard] storing text in ref, setShowFallback(true)');
       fallbackTextRef.current = text;
       setShowFallback(true);
+      console.log('[clipboard] setShowFallback done');
     }
   }, []);
 

@@ -21,10 +21,14 @@ function CopyBtn({ getText }) {
 
   React.useEffect(() => {
     if (showFallback && taRef.current) {
+      const len = fallbackTextRef.current?.length ?? 0;
+      console.log('[CopyBtn] useEffect: setting textarea.value, len=', len);
       // Set value directly on the DOM node — never stored in React state.
       taRef.current.value = fallbackTextRef.current;
+      console.log('[CopyBtn] textarea.value set, calling focus+select');
       taRef.current.focus();
       taRef.current.select();
+      console.log('[CopyBtn] focus+select done — modal ready');
     }
   }, [showFallback]);
 
@@ -150,7 +154,13 @@ export default function SourceDetail({ tab }) {
   const highlightedLines = useMemo(() => {
     const code = isFormatted ? formattedSource : source;
     if (!code) return null;
-    return splitHighlightedLines(highlightTokens(code));
+    const lines = splitHighlightedLines(highlightTokens(code));
+    const totalTokens = lines.reduce((s, l) => s + l.length, 0);
+    const mem = window.performance?.memory;
+    const usedMB = mem ? (mem.usedJSHeapSize / 1048576).toFixed(1) : 'n/a';
+    const limitMB = mem ? (mem.jsHeapSizeLimit / 1048576).toFixed(1) : 'n/a';
+    console.log(`[SourceDetail] highlightedLines: ${lines.length} lines, ${totalTokens} tokens | heap ${usedMB}/${limitMB} MB`);
+    return lines;
   }, [source, formattedSource, isFormatted]);
 
   // Find & Replace — compute matches from current visible text
