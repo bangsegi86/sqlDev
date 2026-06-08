@@ -109,10 +109,19 @@ let building = false;
 function runBuild() {
   if (building) return { ok: false, message: '이미 빌드 중입니다.' };
   building = true;
-  pushLog('[관리자] 프론트엔드 빌드 시작...', 'sys');
   const frontendDir = join(ROOT, 'frontend');
-  // shell:true → Windows 백그라운드 환경에서도 PATH의 npm을 정상적으로 찾음
-  const proc = spawn('npm', ['run', 'build'], { cwd: frontendDir, shell: true });
+  // npm을 거치지 않고 process.execPath(Node)로 vite를 직접 실행
+  // → shell/PATH 의존성 없이 백그라운드 환경에서도 안정적으로 동작
+  const viteEntry = join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js');
+  if (!existsSync(viteEntry)) {
+    building = false;
+    return { ok: false, message: 'vite를 찾을 수 없습니다. frontend/node_modules가 설치되어 있는지 확인하세요.' };
+  }
+  pushLog('[관리자] 프론트엔드 빌드 시작...', 'sys');
+  const proc = spawn(process.execPath, [viteEntry, 'build'], {
+    cwd: frontendDir,
+    env: { ...process.env, FORCE_COLOR: '0' },
+  });
   proc.stdout.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => pushLog(l, 'out')));
   proc.stderr.on('data', d => d.toString().split('\n').filter(Boolean).forEach(l => pushLog(l, 'err')));
   proc.on('exit', code => {
