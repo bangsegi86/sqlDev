@@ -216,7 +216,7 @@ const DataRow = React.memo(function DataRow({ row, columns, index, rowOffset, is
             }}
             onClick={() => onCellClick(index, col)}
           >
-            {val == null ? <span className="null-val">(null)</span> : String(val)}
+            {val == null ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span> : String(val)}
           </td>
         );
       })}

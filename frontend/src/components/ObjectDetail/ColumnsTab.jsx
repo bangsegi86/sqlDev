@@ -228,7 +228,7 @@ function renderCell(col, h, isRowSel) {
     case 'Column Name':
       return col.COLUMN_NAME;
     case 'Type':
-      return col.DATA_TYPE;
+      return renderTypeBadge(col.DATA_TYPE);
     case 'Length':
       return col.DATA_PRECISION != null
         ? `${col.DATA_PRECISION}${col.DATA_SCALE ? `,${col.DATA_SCALE}` : ''}`
@@ -238,7 +238,7 @@ function renderCell(col, h, isRowSel) {
         ? <span style={{ color: 'var(--text-dim)' }}>Y</span>
         : <span style={{ color: 'var(--danger)', fontWeight: 700 }}>N</span>;
     case 'Default':
-      return col.DATA_DEFAULT ?? <span className="null-val">(null)</span>;
+      return col.DATA_DEFAULT ?? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span>;
     case 'Key':
       return col.IS_PK ? <span className="tag-pk" title="Primary Key">PK</span> : null;
     case 'Comment':
@@ -248,12 +248,30 @@ function renderCell(col, h, isRowSel) {
   }
 }
 
+function renderTypeBadge(dataType) {
+  if (!dataType) return dataType;
+  const t = dataType.toUpperCase();
+  let style;
+  if (['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR', 'CLOB', 'NCLOB'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(100,200,100,0.15)', color: '#7ec87e', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['NUMBER', 'INTEGER', 'FLOAT', 'BINARY_FLOAT', 'BINARY_DOUBLE'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(100,150,255,0.15)', color: '#7eb8f0', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['DATE', 'TIMESTAMP', 'INTERVAL'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(255,180,80,0.15)', color: '#f0c070', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else if (['BLOB', 'RAW', 'LONG', 'XMLTYPE'].some(k => t.startsWith(k))) {
+    style = { background: 'rgba(255,100,100,0.15)', color: '#f07070', borderRadius: 3, padding: '0 4px', fontSize: '0.9em' };
+  } else {
+    style = { color: 'var(--text-secondary)' };
+  }
+  return <span style={style}>{dataType}</span>;
+}
+
 function cellExtra(col, h) {
   switch (h) {
     case 'Column Name':
       return { fontWeight: col.IS_PK ? 700 : 400, color: col.IS_PK ? 'var(--pk-color)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
     case 'Type':
-      return { color: 'var(--accent-bright)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+      return { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
     case 'Length': case '#':
       return { color: 'var(--text-secondary)' };
     case 'Nullable': case 'Key':
