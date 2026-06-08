@@ -14,7 +14,7 @@ import http from 'http';
 import { spawn, exec } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync, readdirSync } from 'fs';
 import { networkInterfaces } from 'os';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +122,34 @@ function runBuild() {
   return { ok: true, message: '빌드를 시작했습니다. 로그를 확인하세요.' };
 }
 
+function getNewestMtime(dir, depth = 0) {
+  if (depth > 8 || !existsSync(dir)) return 0;
+  let newest = 0;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        newest = Math.max(newest, getNewestMtime(full, depth + 1));
+      } else {
+        try { newest = Math.max(newest, statSync(full).mtimeMs); } catch {}
+      }
+    }
+  } catch {}
+  return newest;
+}
+
+function isBuildFresh() {
+  if (!existsSync(DIST_INDEX)) return false;
+  const distMtime = statSync(DIST_INDEX).mtimeMs;
+  let srcNewest = getNewestMtime(join(ROOT, 'frontend', 'src'));
+  for (const name of ['vite.config.js', 'vite.config.ts', 'package.json', 'index.html']) {
+    const f = join(ROOT, 'frontend', name);
+    try { if (existsSync(f)) srcNewest = Math.max(srcNewest, statSync(f).mtimeMs); } catch {}
+  }
+  return distMtime >= srcNewest;
+}
+
 function getNetworkIPs() {
   const ips = [];
   for (const ifaces of Object.values(networkInterfaces())) {
@@ -141,6 +169,7 @@ function status() {
     lastExit,
     building,
     hasBuild: existsSync(DIST_INDEX),
+    buildFresh: isBuildFresh(),
     hasNodeModules: existsSync(BACKEND_MODULES),
     managerPort: MANAGER_PORT,
     networkIPs: getNetworkIPs(),

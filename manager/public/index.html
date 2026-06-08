@@ -140,7 +140,10 @@
         <div class="btns" style="margin-top:10px">
           <button class="accent" id="btnBuild">🔨  프론트엔드 빌드</button>
         </div>
-        <div class="hint">소스를 수정했거나 빌드 항목이 빨간불이면 빌드하세요.</div>
+        <div class="hint">
+          🔴 빌드 없음 &nbsp;|&nbsp; 🟡 소스 변경됨 (빌드 필요) &nbsp;|&nbsp; 🟢 최신<br>
+          소스를 수정한 뒤에는 빌드를 실행해야 변경사항이 반영됩니다.
+        </div>
       </div>
     </div>
 
@@ -223,7 +226,7 @@
     }
     // 점검
     setDot($('ckMod'), s.hasNodeModules ? 'on' : 'off');
-    setDot($('ckBuild'), s.hasBuild ? 'on' : 'off');
+    setDot($('ckBuild'), !s.hasBuild ? 'off' : s.buildFresh ? 'on' : 'warn');
   }
 
   async function refresh() {
