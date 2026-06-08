@@ -37,6 +37,7 @@ export const api = {
   },
   getTableDDL: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/ddl`),
   getTableReferences: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/references`),
+  getIndexes: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/indexes`),
   getSchemaErd: (id, schema) => request(`/oracle/${id}/erd/${encodeURIComponent(schema)}`),
   getIndexes: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/indexes`),
   getViewDDL: (id, schema, view) => request(`/oracle/${id}/views/${encodeURIComponent(schema)}/${encodeURIComponent(view)}/ddl`),
@@ -62,6 +63,9 @@ export const api = {
 
   executeDml: (id, sql, binds) =>
     request(`/oracle/${id}/execute-dml`, { method: 'POST', body: { sql, binds } }),
+
+  getSessions: (id) => request(`/oracle/${id}/sessions`),
+  getLocks: (id) => request(`/oracle/${id}/locks`),
 
   // Table specification export → triggers a file download (xlsx | pdf)
   exportTableSpec: async (id, schema, tables, format) => {

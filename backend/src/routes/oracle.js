@@ -70,6 +70,22 @@ router.get('/:id/tables/:schema/:name/references', wrap(async (req, res) => {
   res.json(await oracle.getTableReferences(req.params.id, req.params.schema, req.params.name));
 }));
 
+router.get('/:id/tables/:schema/:name/indexes', wrap(async (req, res) => {
+  const { id, schema, name: tableName } = req.params;
+  const result = await oracle.executeRaw(id, `
+SELECT i.INDEX_NAME, i.INDEX_TYPE, i.UNIQUENESS, i.STATUS,
+       i.NUM_ROWS, i.LAST_ANALYZED,
+       LISTAGG(ic.COLUMN_NAME || CASE WHEN ic.DESCEND = 'DESC' THEN ' DESC' ELSE '' END, ', ')
+         WITHIN GROUP (ORDER BY ic.COLUMN_POSITION) AS COLUMNS
+FROM ALL_INDEXES i
+JOIN ALL_IND_COLUMNS ic ON i.INDEX_NAME = ic.INDEX_NAME AND i.OWNER = ic.INDEX_OWNER
+WHERE i.OWNER = :schema AND i.TABLE_NAME = :tableName
+GROUP BY i.INDEX_NAME, i.INDEX_TYPE, i.UNIQUENESS, i.STATUS, i.NUM_ROWS, i.LAST_ANALYZED
+ORDER BY i.INDEX_NAME
+  `, { schema, tableName });
+  res.json({ indexes: result.rows });
+}));
+
 router.get('/:id/erd/:schema', wrap(async (req, res) => {
   res.json(await oracle.getSchemaErd(req.params.id, req.params.schema));
 }));
@@ -188,6 +204,52 @@ router.post('/:id/execute-dml', wrap(async (req, res) => {
   const { sql, binds } = req.body;
   if (!sql) return res.status(400).json({ error: 'sql is required' });
   res.json(await oracle.executeDml(req.params.id, sql, binds || {}));
+}));
+
+// ── 세션 모니터링
+router.get('/:id/sessions', wrap(async (req, res) => {
+  try {
+    const result = await oracle.executeRaw(req.params.id, `
+SELECT s.SID, s.SERIAL#, s.USERNAME, s.STATUS, s.OSUSER, s.MACHINE,
+       s.PROGRAM, s.MODULE, s.ACTION, s.LOGON_TIME,
+       s.LAST_CALL_ET, s.SQL_ID, s.EVENT, s.STATE,
+       q.SQL_TEXT
+FROM V$SESSION s
+LEFT JOIN V$SQL q ON s.SQL_ID = q.SQL_ID AND s.SQL_CHILD_NUMBER = q.CHILD_NUMBER
+WHERE s.TYPE = 'USER' AND s.USERNAME IS NOT NULL
+ORDER BY s.STATUS, s.LAST_CALL_ET DESC
+    `);
+    res.json({ sessions: result.rows });
+  } catch (e) {
+    if (e.message && (e.message.includes('ORA-00942') || e.message.includes('insufficient privileges') || e.message.includes('table or view does not exist'))) {
+      res.json({ sessions: [], note: 'V$SESSION 조회 권한이 없습니다. DBA 권한이 필요합니다.' });
+    } else {
+      throw e;
+    }
+  }
+}));
+
+// ── 락 모니터링
+router.get('/:id/locks', wrap(async (req, res) => {
+  try {
+    const result = await oracle.executeRaw(req.params.id, `
+SELECT l.SID, l.TYPE, l.ID1, l.ID2, l.LMODE, l.REQUEST, l.BLOCK,
+       s.USERNAME, s.STATUS, s.SQL_ID,
+       o.OBJECT_NAME, o.OBJECT_TYPE
+FROM V$LOCK l
+JOIN V$SESSION s ON l.SID = s.SID
+LEFT JOIN DBA_OBJECTS o ON l.ID1 = o.OBJECT_ID
+WHERE l.TYPE IN ('TM','TX') AND s.USERNAME IS NOT NULL
+ORDER BY l.BLOCK DESC, l.SID
+    `);
+    res.json({ locks: result.rows });
+  } catch (e) {
+    if (e.message && (e.message.includes('ORA-00942') || e.message.includes('insufficient privileges') || e.message.includes('table or view does not exist'))) {
+      res.json({ locks: [], note: 'V$LOCK 조회 권한이 없습니다. DBA 권한이 필요합니다.' });
+    } else {
+      throw e;
+    }
+  }
 }));
 
 // ── 테이블 명세서 내보내기 (Excel / PDF)

@@ -90,3 +90,5 @@ export const countSQL = delegate('countSQL');
 export const generateColumnReorderScript = delegate('generateColumnReorderScript');
 export const executeScriptStatements = delegate('executeScriptStatements');
 export const explainSQL = delegate('explainSQL');
+export const executeDml = delegate('executeDml');
+export const executeRaw = delegate('executeRaw');

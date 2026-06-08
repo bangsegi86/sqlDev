@@ -71,7 +71,7 @@ export default function ObjectExplorer() {
   const selRef = useRef(sel);
   selRef.current = sel;
 
-  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, type, name }
+  const [ctxMenu, setCtxMenu] = useState(null);   // { x, y, schema, type, name, isSchema? }
   const [specModal, setSpecModal] = useState(null); // { schema, tables[] }
   const [scriptModal, setScriptModal] = useState(null); // { schema, type, names[] }
 
@@ -150,6 +150,17 @@ export default function ObjectExplorer() {
       connectionId: activeConnectionId,
       content: { schema },
     });
+  }
+
+  function openMonitor() {
+    openTab(dispatch, stateRef.current, {
+      id: `monitor-${activeConnectionId}`,
+      type: 'monitor',
+      title: '세션/락 모니터링',
+      connectionId: activeConnectionId,
+      content: {},
+    });
+    setCtxMenu(null);
   }
 
   const handleSchemaClick = useCallback((schema) => {
@@ -428,9 +439,14 @@ export default function ObjectExplorer() {
           style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9000, minWidth: 210 }}
         >
           {ctxMenu.isSchema ? (
-            <div className="ctx-menu-item" onClick={() => { openErd(ctxMenu.schema); setCtxMenu(null); }}>
-              🔗 ERD 다이어그램 보기
-            </div>
+            <>
+              <div className="ctx-menu-item" onClick={() => { openErd(ctxMenu.schema); setCtxMenu(null); }}>
+                🔗 ERD 다이어그램 보기
+              </div>
+              <div className="ctx-menu-item" onClick={openMonitor}>
+                &#128202; 세션/락 모니터링
+              </div>
+            </>
           ) : <>
           {(() => {
             const cur = selRef.current;
