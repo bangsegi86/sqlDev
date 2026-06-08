@@ -11,27 +11,59 @@ import { useCopy } from '../../utils/clipboard.js';
 import { diagLog } from '../../utils/diagLog.js';
 
 // Isolated copy button — owns its own state so re-renders never touch the source view.
-// Falls back to a modal textarea when the async Clipboard API is unavailable (HTTP/LAN).
 //
-// IMPORTANT: the fallback text is stored in a ref (not state) and written to the
-// textarea via direct DOM assignment, so React never puts a 100KB+ string into
-// the Virtual DOM — that was the root cause of the renderer crash.
+// For large text (>60KB) the async Clipboard API is bypassed.
+// Fallback: an off-screen <textarea> (not visible, not painted) is created via
+// direct DOM manipulation so the browser layout engine never needs to rasterize
+// a 185KB selection highlight — that was the renderer crash root cause.
+// The user presses Ctrl+C while the "ready" modal is visible; the off-screen
+// element holds focus and the selection, so Ctrl+C copies the full text.
 function CopyBtn({ getText }) {
   const [copy, copied, showFallback, clearFallback, fallbackTextRef] = useCopy();
-  const taRef = React.useRef(null);
+  const offscreenRef = React.useRef(null);
 
   React.useEffect(() => {
-    if (showFallback && taRef.current) {
-      const len = fallbackTextRef.current?.length ?? 0;
-      diagLog(`[CopyBtn] useEffect: setting textarea.value len=${len}`);
-      // Set value directly on the DOM node — never stored in React state.
-      taRef.current.value = fallbackTextRef.current;
-      diagLog('[CopyBtn] textarea.value set, calling focus+select');
-      taRef.current.focus();
-      taRef.current.select();
-      diagLog('[CopyBtn] focus+select done — modal ready');
+    if (!showFallback) {
+      // Cleanup: remove off-screen textarea when modal closes
+      const ta = offscreenRef.current;
+      if (ta && document.body.contains(ta)) document.body.removeChild(ta);
+      offscreenRef.current = null;
+      return;
     }
-  }, [showFallback]);
+
+    // Create textarea far above the viewport — never painted, never rasterized.
+    // The browser tracks the selection logically without rendering the highlight.
+    const ta = document.createElement('textarea');
+    ta.style.cssText = 'position:fixed;top:-9999px;left:0;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none;';
+    ta.readOnly = true;
+    ta.setAttribute('spellcheck', 'false');
+    ta.value = fallbackTextRef.current;
+    document.body.appendChild(ta);
+    offscreenRef.current = ta;
+
+    diagLog(`[CopyBtn] off-screen textarea created len=${ta.value.length}`);
+    ta.focus();
+    ta.select();
+    diagLog('[CopyBtn] off-screen focus+select done');
+
+    // Auto-close modal when the user presses Ctrl+C or Escape
+    const onKey = (e) => {
+      if (e.key === 'Escape') { clearFallback(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        setTimeout(clearFallback, 400); // brief delay so copy completes first
+      }
+    };
+    ta.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      ta.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [showFallback, clearFallback]);
+
+  const sizeKB = showFallback
+    ? Math.round((fallbackTextRef.current?.length ?? 0) / 1024)
+    : 0;
 
   return (
     <>
@@ -44,42 +76,30 @@ function CopyBtn({ getText }) {
       {showFallback && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.6)',
+          background: 'rgba(0,0,0,0.55)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }} onClick={clearFallback}>
           <div style={{
             background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: 20, width: '70vw', maxWidth: 800,
-            display: 'flex', flexDirection: 'column', gap: 10,
+            borderRadius: 10, padding: '28px 32px', width: 340, textAlign: 'center',
+            display: 'flex', flexDirection: 'column', gap: 14,
           }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>
-                📋 소스 복사 — <span style={{ color: 'var(--accent-bright)' }}>Ctrl+C</span>를 눌러 복사하세요
-              </span>
-              <button
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 16 }}
-                onClick={clearFallback}
-              >✕</button>
+            <div style={{ fontSize: 36 }}>📋</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+              Ctrl+C 를 눌러 복사하세요
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-              HTTP 환경에서는 자동 복사가 제한됩니다. 텍스트가 선택되어 있으니 Ctrl+C를 누르세요.
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.7 }}>
+              소스({sizeKB} KB)가 준비됐습니다.<br/>
+              HTTP 환경에서는 자동 복사가 제한됩니다.
             </div>
-            {/* Uncontrolled textarea — value set imperatively in useEffect, never via React */}
-            <textarea
-              ref={taRef}
-              readOnly
-              spellCheck={false}
-              autoCorrect="off"
-              defaultValue=""
+            <button
               style={{
-                width: '100%', height: '50vh', resize: 'vertical',
-                fontFamily: 'var(--code-font)', fontSize: 12,
-                background: 'var(--bg-primary)', color: 'var(--text-primary)',
-                border: '1px solid var(--border)', borderRadius: 4,
-                padding: 10, boxSizing: 'border-box',
+                padding: '6px 0', borderRadius: 5, cursor: 'pointer', fontSize: 12,
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
               }}
-              onKeyDown={e => { if (e.key === 'Escape') clearFallback(); }}
-            />
+              onClick={clearFallback}
+            >닫기 (Esc)</button>
           </div>
         </div>
       )}
