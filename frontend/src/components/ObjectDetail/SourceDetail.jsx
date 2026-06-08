@@ -8,6 +8,7 @@ import SyntaxTextarea from '../Common/SyntaxTextarea.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { highlightTokens, splitHighlightedLines, SQL_COLORS } from '../../utils/sqlHighlight.js';
 import { useCopy } from '../../utils/clipboard.js';
+import { diagLog } from '../../utils/diagLog.js';
 
 // Isolated copy button — owns its own state so re-renders never touch the source view.
 // Falls back to a modal textarea when the async Clipboard API is unavailable (HTTP/LAN).
@@ -22,13 +23,13 @@ function CopyBtn({ getText }) {
   React.useEffect(() => {
     if (showFallback && taRef.current) {
       const len = fallbackTextRef.current?.length ?? 0;
-      console.log('[CopyBtn] useEffect: setting textarea.value, len=', len);
+      diagLog(`[CopyBtn] useEffect: setting textarea.value len=${len}`);
       // Set value directly on the DOM node — never stored in React state.
       taRef.current.value = fallbackTextRef.current;
-      console.log('[CopyBtn] textarea.value set, calling focus+select');
+      diagLog('[CopyBtn] textarea.value set, calling focus+select');
       taRef.current.focus();
       taRef.current.select();
-      console.log('[CopyBtn] focus+select done — modal ready');
+      diagLog('[CopyBtn] focus+select done — modal ready');
     }
   }, [showFallback]);
 
@@ -159,7 +160,7 @@ export default function SourceDetail({ tab }) {
     const mem = window.performance?.memory;
     const usedMB = mem ? (mem.usedJSHeapSize / 1048576).toFixed(1) : 'n/a';
     const limitMB = mem ? (mem.jsHeapSizeLimit / 1048576).toFixed(1) : 'n/a';
-    console.log(`[SourceDetail] highlightedLines: ${lines.length} lines, ${totalTokens} tokens | heap ${usedMB}/${limitMB} MB`);
+    diagLog(`[SourceDetail] highlightedLines: ${lines.length} lines, ${totalTokens} tokens | heap ${usedMB}/${limitMB} MB`);
     return lines;
   }, [source, formattedSource, isFormatted]);
 

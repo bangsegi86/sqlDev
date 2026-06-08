@@ -32,7 +32,25 @@ app.get('/api/build-version', (req, res) => {
   res.json({ version: statSync(distIndex).mtimeMs });
 });
 
-app.use('/api/connections', connectionsRouter);
+// ── 진단 로그 (클라이언트 크래시 원인 추적용) ──
+// 브라우저 탭이 죽어도 서버에 로그가 남는다.
+// GET /api/diag-log  → 최근 200개 항목 반환
+// POST /api/diag-log → { msg: string } 저장
+const diagLogBuffer = [];
+const DIAG_LOG_LIMIT = 200;
+app.get('/api/diag-log', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(diagLogBuffer.join('\n') || '(진단 로그 없음)');
+});
+app.post('/api/diag-log', (req, res) => {
+  const msg = String(req.body?.msg ?? '').slice(0, 2000);
+  const entry = `${new Date().toISOString()}  ${msg}`;
+  console.log('[diag]', msg);
+  diagLogBuffer.push(entry);
+  if (diagLogBuffer.length > DIAG_LOG_LIMIT) diagLogBuffer.shift();
+  res.json({ ok: true });
+});
+
 app.use('/api/oracle', oracleRouter);
 app.use('/api/settings', settingsRouter);
 

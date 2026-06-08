@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { diagLog } from './diagLog.js';
 
 // Clipboard write limit: skip the async API for very large text.
 // navigator.clipboard.writeText() can cause renderer crashes in some Chromium
@@ -13,26 +14,26 @@ export async function copyText(text) {
 
   const len = text.length;
   const kb  = (len / 1024).toFixed(1);
-  console.log(`[clipboard] copyText start  len=${len} (${kb} KB)`);
+  diagLog(`[clipboard] copyText start  len=${len} (${kb} KB)`);
 
   if (
     len <= CLIPBOARD_API_LIMIT &&
     navigator.clipboard &&
     typeof navigator.clipboard.writeText === 'function'
   ) {
-    console.log('[clipboard] path → navigator.clipboard.writeText');
+    diagLog('[clipboard] path → navigator.clipboard.writeText');
     try {
       await navigator.clipboard.writeText(text);
-      console.log('[clipboard] writeText SUCCESS');
+      diagLog('[clipboard] writeText SUCCESS');
       return true;
     } catch (err) {
-      console.warn('[clipboard] writeText FAILED:', err?.name, err?.message);
+      diagLog(`[clipboard] writeText FAILED: ${err?.name} ${err?.message}`);
     }
   } else {
     const reason = len > CLIPBOARD_API_LIMIT
       ? `len ${len} > limit ${CLIPBOARD_API_LIMIT}`
       : 'clipboard API unavailable';
-    console.log(`[clipboard] path → fallback modal  (${reason})`);
+    diagLog(`[clipboard] path → fallback modal  (${reason})`);
   }
   return false;
 }
@@ -49,17 +50,17 @@ export function useCopy() {
   const fallbackTextRef = useRef('');
 
   const copy = useCallback(async (text) => {
-    console.log('[clipboard] useCopy.copy called');
+    diagLog('[clipboard] useCopy.copy called');
     const ok = await copyText(text);
-    console.log('[clipboard] copyText returned:', ok);
+    diagLog(`[clipboard] copyText returned: ${ok}`);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } else if (text) {
-      console.log('[clipboard] storing text in ref, setShowFallback(true)');
+      diagLog('[clipboard] storing text in ref, setShowFallback(true)');
       fallbackTextRef.current = text;
       setShowFallback(true);
-      console.log('[clipboard] setShowFallback done');
+      diagLog('[clipboard] setShowFallback done');
     }
   }, []);
 
