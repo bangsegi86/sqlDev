@@ -2,8 +2,6 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../../api/client.js';
 import DataGrid from '../Common/DataGrid.jsx';
 
-// txStatus: 'idle' | 'executing' | 'pending_commit' | 'committing' | 'rolling_back'
-
 export default function DataTab({ connectionId, schema, tableName, objectType }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,21 +16,20 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const [pkColumns, setPkColumns] = useState([]);
   const [editMode, setEditMode] = useState(false);
 
-  // Staged changes: { key: `${rowIdx}::${col}`, rowIdx, col, oldVal, newVal, sql, binds }
+  // Staged changes: { key, rowIdx, col, oldVal, newVal, sql, binds }
   const [pendingChanges, setPendingChanges] = useState([]);
 
-  // Active transaction
-  const [txId, setTxId] = useState(null);
-  const [txStatus, setTxStatus] = useState('idle'); // idle | executing | pending_commit | committing | rolling_back
-  const [txResults, setTxResults] = useState([]); // { sql, rowsAffected?, error? }
+  // Confirmation modal
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [executing, setExecuting] = useState(false);
 
-  // Toast notification
-  const [toast, setToast] = useState(null); // { msg, type: 'success'|'error' }
-  const toastTimerRef = useRef(null);
+  // Toast
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
   function showToast(msg, type = 'success') {
-    clearTimeout(toastTimerRef.current);
+    clearTimeout(toastTimer.current);
     setToast({ msg, type });
-    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
   const isTable = objectType === 'TABLE';
@@ -59,13 +56,10 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
 
   useEffect(() => { load(); }, [load]);
 
-  // Reset edit state when table/connection changes
   useEffect(() => {
     setEditMode(false);
     setPendingChanges([]);
-    setTxId(null);
-    setTxStatus('idle');
-    setTxResults([]);
+    setConfirmOpen(false);
   }, [connectionId, schema, tableName]);
 
   function handleSort(col) {
@@ -77,7 +71,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   function applyFilter() { setFilter(filterInput.trim()); setPage(1); }
   function clearFilter() { setFilterInput(''); setFilter(''); setPage(1); }
 
-  // Called by DataGrid on double-click edit commit — stages the change instead of executing
   function handleCellEdit(rowIdx, col, oldVal, newVal) {
     if (!data) return;
     if (newVal === oldVal || (newVal === '' && oldVal == null)) return;
@@ -93,12 +86,10 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
 
     setPendingChanges(prev => {
       const without = prev.filter(c => c.key !== changeKey);
-      // If value reverted to original, just remove
       if (String(newVal) === String(oldVal) || (newVal === '' && oldVal == null)) return without;
       return [...without, { key: changeKey, rowIdx, col, oldVal, newVal: newVal === '' ? null : newVal, sql, binds }];
     });
 
-    // Reflect change in local grid state immediately
     setData(prev => {
       if (!prev) return prev;
       const newRows = prev.rows.map((r, i) =>
@@ -111,7 +102,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   function discardChange(key) {
     const change = pendingChanges.find(c => c.key === key);
     if (!change) return;
-    // Revert grid row
     setData(prev => {
       if (!prev) return prev;
       const newRows = prev.rows.map((r, i) =>
@@ -123,7 +113,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   }
 
   function discardAll() {
-    // Revert all grid rows
     setData(prev => {
       if (!prev) return prev;
       let rows = [...prev.rows];
@@ -135,92 +124,26 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     setPendingChanges([]);
   }
 
-  async function executeChanges() {
-    if (pendingChanges.length === 0) return;
-    setTxStatus('executing');
-    setTxResults([]);
-
-    // JDBC 모드: 트랜잭션 불가 → executeDml(autoCommit)로 폴백
-    let jdbcMode = false;
-    let newTxId;
-    try {
-      const res = await api.beginTransaction(connectionId);
-      if (res.jdbcMode) {
-        jdbcMode = true;
-      } else {
-        newTxId = res.txId;
-        setTxId(res.txId);
-      }
-    } catch (e) {
-      setTxStatus('idle');
-      showToast(`트랜잭션 시작 실패: ${e.message}`, 'error');
-      return;
-    }
-
-    const results = [];
+  async function doExecute() {
+    setExecuting(true);
+    setConfirmOpen(false);
+    let successCount = 0;
+    const errors = [];
     for (const change of pendingChanges) {
       try {
-        let r;
-        if (jdbcMode) {
-          r = await api.executeDml(connectionId, change.sql, change.binds);
-        } else {
-          r = await api.executeInTransaction(connectionId, newTxId, change.sql, change.binds);
-        }
-        results.push({ sql: change.sql, rowsAffected: r.rowsAffected });
+        await api.executeDml(connectionId, change.sql, change.binds);
+        successCount++;
       } catch (e) {
-        results.push({ sql: change.sql, error: e.message });
+        errors.push({ sql: change.sql, error: e.message });
       }
     }
-    setTxResults(results);
-
-    if (jdbcMode) {
-      const total = results.reduce((s, r) => s + (r.rowsAffected ?? 0), 0);
-      const errCount = results.filter(r => r.error).length;
-      setPendingChanges([]);
-      setTxStatus('idle');
-      load();
-      if (errCount > 0) {
-        showToast(`${results.length - errCount}건 저장, ${errCount}건 실패`, 'error');
-      } else {
-        showToast(`${total}건 저장되었습니다`, 'success');
-      }
+    setExecuting(false);
+    setPendingChanges([]);
+    load();
+    if (errors.length > 0) {
+      showToast(`${successCount}건 저장, ${errors.length}건 실패: ${errors[0].error}`, 'error');
     } else {
-      setTxStatus('pending_commit');
-    }
-  }
-
-  async function handleCommit() {
-    if (!txId) return;
-    setTxStatus('committing');
-    try {
-      await api.commitTransaction(connectionId, txId);
-      const total = txResults.reduce((s, r) => s + (r.rowsAffected ?? 0), 0);
-      setTxId(null);
-      setPendingChanges([]);
-      setTxStatus('idle');
-      setTxResults([]);
-      load();
-      showToast(`COMMIT 완료 — ${total}건 저장되었습니다`, 'success');
-    } catch (e) {
-      showToast(`COMMIT 실패: ${e.message}`, 'error');
-      setTxStatus('pending_commit');
-    }
-  }
-
-  async function handleRollback() {
-    if (!txId) return;
-    setTxStatus('rolling_back');
-    try {
-      await api.rollbackTransaction(connectionId, txId);
-      setTxId(null);
-      setTxStatus('idle');
-      setTxResults([]);
-      setPendingChanges([]);
-      load();
-      showToast('ROLLBACK 완료 — 변경사항이 취소되었습니다', 'error');
-    } catch (e) {
-      showToast(`ROLLBACK 실패: ${e.message}`, 'error');
-      setTxStatus('pending_commit');
+      showToast(`${successCount}건 저장되었습니다`, 'success');
     }
   }
 
@@ -228,12 +151,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const editableColumns = canEdit && editMode && data
     ? new Set(data.columns.filter(c => !pkColumns.includes(c)))
     : new Set();
-
-  // Set of highlighted cells from pending changes
   const pendingCellKeys = new Set(pendingChanges.map(c => c.key));
-
-  const hasErrors = txResults.some(r => r.error);
-  const isBusy = txStatus === 'executing' || txStatus === 'committing' || txStatus === 'rolling_back';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
@@ -246,10 +164,61 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
           background: toast.type === 'success' ? '#1e4d2b' : '#4d1e1e',
           color: toast.type === 'success' ? '#7ec87e' : '#f07070',
           border: `1px solid ${toast.type === 'success' ? '#3a7a4a' : '#7a3a3a'}`,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-          pointerEvents: 'none',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)', pointerEvents: 'none',
         }}>
           {toast.type === 'success' ? '✓ ' : '✕ '}{toast.msg}
+        </div>
+      )}
+
+      {/* ── 실행 확인 모달 ── */}
+      {confirmOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--bg-panel)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '20px 24px', width: 600, maxWidth: '90vw',
+            maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 14,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-bright)' }}>
+              ⚠ 변경사항 실행 확인
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              아래 {pendingChanges.length}건의 SQL이 즉시 실행됩니다. 계속하시겠습니까?
+            </div>
+            <div style={{
+              background: 'var(--bg-base)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '10px 12px', overflowY: 'auto', maxHeight: 340,
+              fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.7,
+            }}>
+              {pendingChanges.map((c, i) => (
+                <div key={c.key} style={{ marginBottom: 8 }}>
+                  <span style={{ color: 'var(--text-dim)', marginRight: 8 }}>{i + 1}.</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{c.sql}</span>
+                  <div style={{ paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 11 }}>
+                    {Object.entries(c.binds).map(([k, v]) => (
+                      <span key={k} style={{ marginRight: 12 }}>:{k} = <em style={{ color: 'var(--accent-bright)' }}>{v == null ? 'NULL' : String(v)}</em></span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" onClick={() => setConfirmOpen(false)}
+                style={{ padding: '5px 16px', fontSize: 13 }}>
+                취소
+              </button>
+              <button onClick={doExecute}
+                style={{
+                  padding: '5px 18px', fontSize: 13, fontWeight: 700,
+                  background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer',
+                }}>
+                ▶ 실행
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -259,11 +228,8 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
         borderBottom: '1px solid var(--border)',
         display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, flexWrap: 'wrap',
       }}>
-        <button className="btn-secondary" onClick={load}
-          disabled={txStatus === 'pending_commit' || isBusy}
-          style={{ padding: '2px 8px', flexShrink: 0 }}
-          title={txStatus === 'pending_commit' ? 'COMMIT 또는 ROLLBACK 후 새로고침 가능합니다' : ''}
-        >↻ 새로고침</button>
+        <button className="btn-secondary" onClick={load} disabled={executing}
+          style={{ padding: '2px 8px', flexShrink: 0 }}>↻ 새로고침</button>
 
         <div style={{ display: 'flex', gap: 4, flex: 1, minWidth: 200 }}>
           <input
@@ -286,7 +252,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
 
         {data && <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>총 {data.total.toLocaleString()}행</span>}
 
-        {canEdit && txStatus === 'idle' && (
+        {canEdit && (
           <button
             className={editMode ? 'btn-primary' : 'btn-secondary'}
             onClick={() => {
@@ -296,13 +262,14 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
               }
               setEditMode(e => !e);
             }}
+            disabled={executing}
             style={{ padding: '2px 8px', flexShrink: 0 }}
           >
             {editMode ? '✏ 편집 중' : '✏ 편집 모드'}
           </button>
         )}
 
-        {loading && <span className="spinner" />}
+        {(loading || executing) && <span className="spinner" />}
       </div>
 
       {error && (
@@ -330,7 +297,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
       )}
 
       {/* ── Pending Changes Panel ── */}
-      {editMode && pendingChanges.length > 0 && txStatus === 'idle' && (
+      {editMode && pendingChanges.length > 0 && (
         <div style={{
           background: 'var(--bg-panel)', borderTop: '2px solid var(--accent)',
           padding: '8px 12px', flexShrink: 0, maxHeight: 180, overflow: 'auto',
@@ -339,11 +306,11 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
             <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--accent-bright)' }}>
               변경 예정 {pendingChanges.length}건
             </span>
-            <button className="btn-primary" onClick={executeChanges}
+            <button className="btn-primary" onClick={() => setConfirmOpen(true)} disabled={executing}
               style={{ padding: '2px 10px', fontSize: 12 }}>
               ▶ 변경사항 실행
             </button>
-            <button className="btn-secondary" onClick={discardAll}
+            <button className="btn-secondary" onClick={discardAll} disabled={executing}
               style={{ padding: '2px 8px', fontSize: 12, color: 'var(--danger)' }}>
               ✕ 전체 취소
             </button>
@@ -365,7 +332,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
                     {c.oldVal == null ? <em style={{ opacity: 0.5 }}>null</em> : String(c.oldVal)}
                   </td>
                   <td style={{ padding: '2px 6px', color: 'var(--text-dim)' }}>→</td>
-                  <td style={{ padding: '2px 6px', color: 'var(--success, #7ec87e)', fontFamily: 'var(--code-font)' }}>
+                  <td style={{ padding: '2px 6px', color: '#7ec87e', fontFamily: 'var(--code-font)' }}>
                     {c.newVal == null ? <em style={{ opacity: 0.5 }}>null</em> : String(c.newVal)}
                   </td>
                   <td style={{ padding: '2px 4px' }}>
@@ -377,79 +344,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* ── Executing indicator ── */}
-      {txStatus === 'executing' && (
-        <div style={{
-          background: 'rgba(79,193,255,0.1)', borderTop: '2px solid var(--accent)',
-          padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
-        }}>
-          <span className="spinner" />
-          <span style={{ fontSize: 12, color: 'var(--accent-bright)' }}>변경사항 실행 중...</span>
-        </div>
-      )}
-
-      {/* ── Commit / Rollback Panel ── */}
-      {txStatus === 'pending_commit' && (
-        <div style={{
-          background: hasErrors ? 'rgba(220,80,80,0.08)' : 'rgba(80,200,80,0.08)',
-          borderTop: `2px solid ${hasErrors ? 'var(--danger)' : '#4caf50'}`,
-          padding: '8px 12px', flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: txResults.length ? 6 : 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: hasErrors ? 'var(--danger)' : '#7ec87e' }}>
-              {hasErrors
-                ? `⚠ ${txResults.filter(r => r.error).length}건 오류 — ROLLBACK을 권장합니다`
-                : `✓ ${txResults.length}건 실행 완료 — 조회로 검증 후 COMMIT 또는 ROLLBACK`}
-            </span>
-            <button
-              onClick={handleCommit}
-              disabled={isBusy}
-              style={{
-                padding: '3px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 3,
-                opacity: isBusy ? 0.5 : 1,
-              }}
-            >
-              {txStatus === 'committing' ? '...' : '✓ COMMIT'}
-            </button>
-            <button
-              onClick={handleRollback}
-              disabled={isBusy}
-              style={{
-                padding: '3px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                background: '#c62828', color: '#fff', border: 'none', borderRadius: 3,
-                opacity: isBusy ? 0.5 : 1,
-              }}
-            >
-              {txStatus === 'rolling_back' ? '...' : '↩ ROLLBACK'}
-            </button>
-            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-              트랜잭션이 열려 있습니다 — 새로고침으로 현재 서버 데이터를 확인할 수 있습니다
-            </span>
-          </div>
-
-          {txResults.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginTop: 4 }}>
-              <tbody>
-                {txResults.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(62,62,66,0.3)' }}>
-                    <td style={{ padding: '2px 6px', width: 20 }}>
-                      {r.error
-                        ? <span style={{ color: 'var(--danger)' }}>✕</span>
-                        : <span style={{ color: '#7ec87e' }}>✓</span>}
-                    </td>
-                    <td style={{ padding: '2px 6px', fontFamily: 'var(--code-font)', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{r.sql}</td>
-                    <td style={{ padding: '2px 6px', whiteSpace: 'nowrap', color: r.error ? 'var(--danger)' : 'var(--text-dim)' }}>
-                      {r.error ? r.error : `${r.rowsAffected}행`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
         </div>
       )}
 
