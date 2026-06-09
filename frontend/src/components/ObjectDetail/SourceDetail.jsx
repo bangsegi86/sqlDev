@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { api } from '../../api/client.js';
 import { useApp, openTab } from '../../store/AppContext.jsx';
+import { buildSelectTemplate, buildInsertTemplate, buildUpdateTemplate, buildDeleteTemplate, buildMergeTemplate } from '../../utils/sqlTemplates.js';
 import AnalyzerTab from './AnalyzerTab.jsx';
 import ExplainTab from './ExplainTab.jsx';
 import SavePreviewModal from './SavePreviewModal.jsx';
@@ -703,6 +704,26 @@ export default function SourceDetail({ tab }) {
               label: `${typeLabel[found.type] || found.type} 열기: ${found.name}`,
               onClick: () => { closeCtxMenu(); navigateToObject(null, found.name, found.type); },
             });
+            if (found.type === 'TABLE') {
+              const copyTemplate = async (buildFn) => {
+                closeCtxMenu();
+                try {
+                  const cols = await api.getColumns(connId, schema, found.name);
+                  const sql = buildFn(schema, found.name, cols);
+                  await navigator.clipboard.writeText(sql);
+                } catch { /* ignore */ }
+              };
+              navItems.push({
+                icon: '📋', label: 'SQL 템플릿 복사',
+                subItems: [
+                  { icon: '🔍', label: 'SELECT', onClick: () => copyTemplate(buildSelectTemplate) },
+                  { icon: '➕', label: 'INSERT', onClick: () => copyTemplate(buildInsertTemplate) },
+                  { icon: '✏', label: 'UPDATE', onClick: () => copyTemplate(buildUpdateTemplate) },
+                  { icon: '🗑', label: 'DELETE', onClick: () => copyTemplate(buildDeleteTemplate) },
+                  { icon: '🔀', label: 'MERGE',  onClick: () => copyTemplate(buildMergeTemplate)  },
+                ],
+              });
+            }
           }
         }
         return (

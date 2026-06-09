@@ -3,6 +3,7 @@ import { api } from '../../api/client.js';
 import { useApp } from '../../store/AppContext.jsx';
 import DataGrid from '../Common/DataGrid.jsx';
 import PlanViewer from './PlanViewer.jsx';
+import { buildSelectTemplate, buildInsertTemplate, buildUpdateTemplate, buildDeleteTemplate, buildMergeTemplate } from '../../utils/sqlTemplates.js';
 import AutocompleteDropdown from './AutocompleteDropdown.jsx';
 import { formatSQL } from '../../utils/formatSQL.js';
 import { rewriteAliases } from '../../utils/aliasRewriter.js';
@@ -1277,6 +1278,26 @@ export default function SqlEditor({ tab }) {
               label: `${typeLabel[found.type] || found.type} 열기: ${found.name}`,
               onClick: () => { closeCtxMenu(); navigateToObject(null, found.name, found.type); },
             });
+            if (found.type === 'TABLE') {
+              const copyTemplate = async (buildFn) => {
+                closeCtxMenu();
+                try {
+                  const cols = await api.getColumns(connId, schema, found.name);
+                  const sql = buildFn(schema, found.name, cols);
+                  await navigator.clipboard.writeText(sql);
+                } catch { /* ignore */ }
+              };
+              navItems.push({
+                icon: '📋', label: 'SQL 템플릿 복사',
+                subItems: [
+                  { icon: '🔍', label: 'SELECT', onClick: () => copyTemplate(buildSelectTemplate) },
+                  { icon: '➕', label: 'INSERT', onClick: () => copyTemplate(buildInsertTemplate) },
+                  { icon: '✏', label: 'UPDATE', onClick: () => copyTemplate(buildUpdateTemplate) },
+                  { icon: '🗑', label: 'DELETE', onClick: () => copyTemplate(buildDeleteTemplate) },
+                  { icon: '🔀', label: 'MERGE',  onClick: () => copyTemplate(buildMergeTemplate)  },
+                ],
+              });
+            }
           }
         }
         return (

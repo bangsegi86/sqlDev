@@ -43,9 +43,11 @@ export default function CodeLookupMenu({ x, y, word, matchingDefs, navItems, onL
       )}
       {navItems && navItems.length > 0 && (
         <>
-          {navItems.map((item, i) => (
-            <MenuItem key={i} icon={item.icon} label={item.label} onClick={item.onClick} />
-          ))}
+          {navItems.map((item, i) =>
+            item.subItems
+              ? <SubMenuItem key={i} item={item} />
+              : <MenuItem key={i} icon={item.icon} label={item.label} onClick={item.onClick} />
+          )}
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
         </>
       )}
@@ -64,7 +66,35 @@ export default function CodeLookupMenu({ x, y, word, matchingDefs, navItems, onL
   );
 }
 
-function MenuItem({ icon, label, desc, onClick }) {
+function SubMenuItem({ item }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <MenuItem icon={item.icon} label={item.label} suffix="›" />
+      {open && (
+        <div style={{
+          position: 'absolute', left: '100%', top: 0,
+          background: 'var(--bg-panel)', border: '1px solid var(--border)',
+          borderRadius: 5, boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+          minWidth: 180, padding: '4px 0', zIndex: 1600,
+        }}>
+          {item.subItems.map((sub, i) => (
+            <MenuItem key={i} icon={sub.icon} label={sub.label} onClick={sub.onClick} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ icon, label, desc, suffix, onClick }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -82,6 +112,8 @@ function MenuItem({ icon, label, desc, onClick }) {
         {label}
         {desc && <span style={{ color: 'var(--text-dim)', fontSize: 10, marginLeft: 6 }}>{desc}</span>}
       </span>
+      {suffix && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>{suffix}</span>}
     </div>
   );
 }
+
