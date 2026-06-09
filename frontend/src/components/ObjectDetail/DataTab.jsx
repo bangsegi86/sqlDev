@@ -124,17 +124,50 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     setPendingChanges([]);
   }
 
+  // 같은 행의 변경들을 하나의 UPDATE로 합침
+  function buildMergedStatements() {
+    const byRow = new Map();
+    for (const c of pendingChanges) {
+      if (!byRow.has(c.rowIdx)) byRow.set(c.rowIdx, []);
+      byRow.get(c.rowIdx).push(c);
+    }
+    const stmts = [];
+    for (const rowChanges of byRow.values()) {
+      const setParts = [];
+      const binds = {};
+      rowChanges.forEach((c, i) => {
+        const setKey = `set_${i}`;
+        setParts.push(`"${c.col}" = :${setKey}`);
+        binds[setKey] = c.newVal;
+      });
+      // PK 바인드는 첫 번째 변경에서 추출
+      const firstBinds = rowChanges[0].binds;
+      Object.entries(firstBinds).forEach(([k, v]) => {
+        if (k.startsWith('pk_')) binds[k] = v;
+      });
+      const whereParts = Object.keys(firstBinds)
+        .filter(k => k.startsWith('pk_'))
+        .map(k => `"${k.slice(3)}" = :${k}`);
+      stmts.push({
+        sql: `UPDATE "${schema}"."${tableName}" SET ${setParts.join(', ')} WHERE ${whereParts.join(' AND ')}`,
+        binds,
+      });
+    }
+    return stmts;
+  }
+
   async function doExecute() {
     setExecuting(true);
     setConfirmOpen(false);
+    const stmts = buildMergedStatements();
     let successCount = 0;
     const errors = [];
-    for (const change of pendingChanges) {
+    for (const s of stmts) {
       try {
-        await api.executeDml(connectionId, change.sql, change.binds);
+        await api.executeDml(connectionId, s.sql, s.binds);
         successCount++;
       } catch (e) {
-        errors.push({ sql: change.sql, error: e.message });
+        errors.push({ sql: s.sql, error: e.message });
       }
     }
     setExecuting(false);
@@ -143,7 +176,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
     if (errors.length > 0) {
       showToast(`${successCount}건 저장, ${errors.length}건 실패: ${errors[0].error}`, 'error');
     } else {
-      showToast(`${successCount}건 저장되었습니다`, 'success');
+      showToast(`${successCount}행 저장되었습니다`, 'success');
     }
   }
 
@@ -185,26 +218,35 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
             <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-bright)' }}>
               ⚠ 변경사항 실행 확인
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              아래 {pendingChanges.length}건의 SQL이 즉시 실행됩니다. 계속하시겠습니까?
-            </div>
-            <div style={{
-              background: 'var(--bg-base)', border: '1px solid var(--border)',
-              borderRadius: 4, padding: '10px 12px', overflowY: 'auto', maxHeight: 340,
-              fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.7,
-            }}>
-              {pendingChanges.map((c, i) => (
-                <div key={c.key} style={{ marginBottom: 8 }}>
-                  <span style={{ color: 'var(--text-dim)', marginRight: 8 }}>{i + 1}.</span>
-                  <span style={{ color: 'var(--text-primary)' }}>{c.sql}</span>
-                  <div style={{ paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 11 }}>
-                    {Object.entries(c.binds).map(([k, v]) => (
-                      <span key={k} style={{ marginRight: 12 }}>:{k} = <em style={{ color: 'var(--accent-bright)' }}>{v == null ? 'NULL' : String(v)}</em></span>
+            {(() => {
+              const stmts = buildMergedStatements();
+              return (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    아래 {stmts.length}건의 SQL이 즉시 실행됩니다. 계속하시겠습니까?
+                  </div>
+                  <div style={{
+                    background: 'var(--bg-base)', border: '1px solid var(--border)',
+                    borderRadius: 4, padding: '10px 12px', overflowY: 'auto', maxHeight: 340,
+                    fontFamily: 'var(--code-font)', fontSize: 12, lineHeight: 1.7,
+                  }}>
+                    {stmts.map((s, i) => (
+                      <div key={i} style={{ marginBottom: 10 }}>
+                        <div>
+                          <span style={{ color: 'var(--text-dim)', marginRight: 8 }}>{i + 1}.</span>
+                          <span style={{ color: 'var(--text-primary)' }}>{s.sql}</span>
+                        </div>
+                        <div style={{ paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
+                          {Object.entries(s.binds).map(([k, v]) => (
+                            <span key={k} style={{ marginRight: 12 }}>:{k} = <em style={{ color: 'var(--accent-bright)' }}>{v == null ? 'NULL' : String(v)}</em></span>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </div>
-              ))}
-            </div>
+                </>
+              );
+            })()}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn-secondary" onClick={() => setConfirmOpen(false)}
                 style={{ padding: '5px 16px', fontSize: 13 }}>
