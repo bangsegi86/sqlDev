@@ -16,6 +16,7 @@ export default function DataGrid({
 }) {
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
+  const keyboardNavRef = useRef(false);
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
 
@@ -57,9 +58,52 @@ export default function DataGrid({
     setEditCell(null);
   }, []);
 
+  // 선택 셀이 키보드 이동으로 바뀔 때 스크롤 추적
+  useEffect(() => {
+    if (!keyboardNavRef.current) return;
+    keyboardNavRef.current = false;
+    if (selRow === null || !selCol) return;
+    const container = containerRef.current;
+    const cell = container?.querySelector(`[data-cell="${selRow}::${selCol}"]`);
+    if (!cell) return;
+    const cr = cell.getBoundingClientRect();
+    const br = container.getBoundingClientRect();
+    if (cr.bottom > br.bottom) container.scrollTop += cr.bottom - br.bottom + 4;
+    else if (cr.top < br.top)  container.scrollTop -= br.top - cr.top + 4;
+    if (cr.right > br.right)   container.scrollLeft += cr.right - br.right + 4;
+    else if (cr.left < br.left) container.scrollLeft -= br.left - cr.left + 4;
+  }, [selRow, selCol]);
+
   function handleKeyDown(e) {
     // Don't intercept keyboard when editing a cell
     if (editCell) return;
+
+    // ── Arrow key navigation ──
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      keyboardNavRef.current = true;
+      const curRow    = selRow ?? 0;
+      const curColIdx = selCol ? columns.indexOf(selCol) : 0;
+      let nr = curRow;
+      let nc = curColIdx;
+      if (e.key === 'ArrowDown')  nr = Math.min(rows.length - 1, curRow + 1);
+      if (e.key === 'ArrowUp')    nr = Math.max(0, curRow - 1);
+      if (e.key === 'ArrowRight') nc = Math.min(columns.length - 1, curColIdx + 1);
+      if (e.key === 'ArrowLeft')  nc = Math.max(0, curColIdx - 1);
+      setSelRow(nr);
+      setSelCol(columns[nc]);
+      setAllSel(false);
+      return;
+    }
+
+    // Enter: 편집 모드 진입 (편집 가능한 셀인 경우)
+    if (e.key === 'Enter' && selRow !== null && selCol !== null) {
+      if (editableSet.has(selCol)) {
+        e.preventDefault();
+        setEditCell({ rowIdx: selRow, col: selCol });
+      }
+      return;
+    }
 
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
       e.preventDefault();
@@ -303,6 +347,7 @@ const DataRow = React.memo(function DataRow({
         return (
           <td
             key={col}
+            data-cell={`${index}::${col}`}
             style={{
               ...TD_DATA,
               background: isPending
