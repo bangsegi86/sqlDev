@@ -34,6 +34,7 @@ export default function ColumnSearchTab({ connectionId, schema }) {
   const [sortDir, setSortDir] = useState('ASC');
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const gridRef = useRef(null);
 
   function showToast(msg, type = 'success') {
     clearTimeout(toastTimer.current);
@@ -80,6 +81,7 @@ export default function ColumnSearchTab({ connectionId, schema }) {
       }));
       setRows(processed);
       setOriginalRows(processed.map(r => ({ ...r })));
+      requestAnimationFrame(() => gridRef.current?.focus());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -244,6 +246,7 @@ export default function ColumnSearchTab({ connectionId, schema }) {
       {/* Grid */}
       {rows && (
         <DataGrid
+          ref={gridRef}
           key={`col-search-${colInput}`}
           columns={DISPLAY_COLS}
           rows={rows}

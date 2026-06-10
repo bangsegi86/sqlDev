@@ -1,8 +1,8 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
-export default function DataGrid({
+const DataGrid = forwardRef(function DataGrid({
   columns = [], rows = [],
   onSort, sortColumn, sortDir,
   rowOffset = 0,
@@ -13,10 +13,17 @@ export default function DataGrid({
   primaryKeyColumns,    // array of PK column names needed for WHERE clause
   onCellEdit,          // callback(rowIdx, col, oldValue, newValue)
   pendingCellKeys,      // Set of "${rowIdx}::${col}" keys to highlight as pending
-}) {
+}, fwdRef) {
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
   const keyboardNavRef = useRef(false);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  // Expose focus() to parent via ref
+  useImperativeHandle(fwdRef, () => ({
+    focus: () => containerRef.current?.focus(),
+  }), []);
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
 
@@ -47,17 +54,31 @@ export default function DataGrid({
     }
   }, [editableSet]);
 
-  const handleEditCommit = useCallback((rowIdx, col, oldVal, newVal) => {
+  // commitType: 'enter' | 'tab' | 'blur'
+  const handleEditCommit = useCallback((rowIdx, col, oldVal, newVal, commitType) => {
     setEditCell(null);
     if (oldVal !== newVal && onCellEdit) {
       onCellEdit(rowIdx, col, oldVal, newVal);
     }
-    requestAnimationFrame(() => containerRef.current?.focus());
+    if (commitType === 'tab') return; // Tab: let browser move focus naturally
+    requestAnimationFrame(() => {
+      containerRef.current?.focus();
+      if (commitType === 'enter') {
+        // Enter: advance to next row
+        keyboardNavRef.current = true;
+        setSelRow(prev => {
+          const max = rowsRef.current.length - 1;
+          return prev !== null ? Math.min(max, prev + 1) : 0;
+        });
+      }
+    });
   }, [onCellEdit]);
 
-  const handleEditCancel = useCallback(() => {
+  const handleEditCancel = useCallback((cancelType) => {
     setEditCell(null);
-    requestAnimationFrame(() => containerRef.current?.focus());
+    if (cancelType !== 'tab') {
+      requestAnimationFrame(() => containerRef.current?.focus());
+    }
   }, []);
 
   // 선택 셀이 키보드 이동으로 바뀔 때 스크롤 추적
@@ -124,17 +145,7 @@ export default function DataGrid({
         navigator.clipboard.writeText(text).catch(() => {});
       }
     }
-    // Ctrl+V: 선택된 편집 가능 셀에 클립보드 내용 붙여넣기
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-      if (selRow !== null && selCol !== null && editableSet.has(selCol)) {
-        e.preventDefault();
-        navigator.clipboard.readText().then(text => {
-          if (text == null) return;
-          const oldVal = rows[selRow]?.[selCol];
-          if (onCellEdit) onCellEdit(selRow, selCol, oldVal == null ? '' : String(oldVal), text);
-        }).catch(() => {});
-      }
-    }
+    // Ctrl+V: onPaste 이벤트로 처리 (하단 handlePaste 참조)
     if (e.key === 'Escape') {
       setSelRow(null); setSelCol(null); setAllSel(false);
     }
@@ -174,6 +185,17 @@ export default function DataGrid({
     fitToScreen(containerRef.current?.clientWidth ?? 600, 44);
   }
 
+  function handlePaste(e) {
+    if (editCell) return; // 편집 중인 입력창에서 처리
+    if (selRow === null || selCol === null || !editableSet.has(selCol)) return;
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (onCellEdit) {
+      const oldVal = rows[selRow]?.[selCol];
+      onCellEdit(selRow, selCol, oldVal == null ? '' : String(oldVal), text);
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', position: 'relative' }}>
       {loading && (
@@ -193,6 +215,7 @@ export default function DataGrid({
         ref={containerRef}
         tabIndex={0}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         style={{ overflow: 'auto', flex: 1, fontSize: 12, outline: 'none' }}
       >
         <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: hasWidths ? 'fixed' : 'auto' }}>
@@ -292,18 +315,18 @@ export default function DataGrid({
       />
     </div>
   );
-}
+});
 
 // Inline edit input component
 function EditInput({ value, initialChar, onCommit, onCancel }) {
   const [draft, setDraft] = useState(initialChar !== undefined ? initialChar : (value == null ? '' : String(value)));
   const inputRef = useRef(null);
+  const commitTypeRef = useRef(null); // 'enter' | 'tab' | 'escape' | null
 
   useEffect(() => {
     if (!inputRef.current) return;
     inputRef.current.focus();
     if (initialChar !== undefined) {
-      // 문자 입력으로 시작: 커서를 맨 끝에
       const len = draft.length;
       inputRef.current.setSelectionRange(len, len);
     } else {
@@ -314,14 +337,24 @@ function EditInput({ value, initialChar, onCommit, onCancel }) {
   function handleKeyDown(e) {
     e.stopPropagation();
     if (e.key === 'Enter') {
-      onCommit(draft);
+      e.preventDefault();
+      commitTypeRef.current = 'enter';
+      onCommit(draft, 'enter');
     } else if (e.key === 'Escape') {
-      onCancel();
+      e.preventDefault();
+      commitTypeRef.current = 'escape';
+      onCancel('escape');
+    } else if (e.key === 'Tab') {
+      // Tab: commit but let Tab navigate naturally (no preventDefault)
+      commitTypeRef.current = 'tab';
+      onCommit(draft, 'tab');
     }
   }
 
   function handleBlur() {
-    onCommit(draft);
+    if (commitTypeRef.current) return; // already handled by keydown
+    commitTypeRef.current = 'blur';
+    onCommit(draft, 'blur');
   }
 
   return (
@@ -397,7 +430,7 @@ const DataRow = React.memo(function DataRow({
               <EditInput
                 value={val}
                 initialChar={editCell?.initialChar}
-                onCommit={newVal => onEditCommit(index, col, val, newVal)}
+                onCommit={(newVal, commitType) => onEditCommit(index, col, val, newVal, commitType)}
                 onCancel={onEditCancel}
               />
             ) : (
@@ -422,3 +455,5 @@ function thStyle(extra = {}) {
     ...extra,
   };
 }
+
+export default DataGrid;

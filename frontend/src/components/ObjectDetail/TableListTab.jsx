@@ -17,6 +17,7 @@ export default function TableListTab({ connectionId, schema }) {
   const [sortDir, setSortDir] = useState('ASC');
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const gridRef = useRef(null);
 
   function showToast(msg, type = 'success') {
     clearTimeout(toastTimer.current);
@@ -58,6 +59,7 @@ export default function TableListTab({ connectionId, schema }) {
       const data = result.rows || [];
       setRows(data);
       setOriginalRows(data.map(r => ({ ...r })));
+      requestAnimationFrame(() => gridRef.current?.focus());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -208,6 +210,7 @@ export default function TableListTab({ connectionId, schema }) {
       {/* Grid */}
       {rows && (
         <DataGrid
+          ref={gridRef}
           key={`table-list-${schema}`}
           columns={DISPLAY_COLS}
           rows={rows}
