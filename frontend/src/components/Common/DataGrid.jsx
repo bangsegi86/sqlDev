@@ -1,6 +1,8 @@
-import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
+
+const ROW_NUM_WIDTH = 44;
 
 const DataGrid = forwardRef(function DataGrid({
   columns = [], rows = [],
@@ -15,28 +17,57 @@ const DataGrid = forwardRef(function DataGrid({
   pendingCellKeys,      // Set of "${rowIdx}::${col}" keys to highlight as pending
 }, fwdRef) {
   const containerRef = useRef(null);
-  const sentinelRef = useRef(null);
+  const sentinelRef  = useRef(null);
   const keyboardNavRef = useRef(false);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const thElsRef = useRef({});  // col → <th> element for width measurement
 
-  // Expose focus() to parent via ref
   useImperativeHandle(fwdRef, () => ({
     focus: () => containerRef.current?.focus(),
   }), []);
+
   const { colWidths, hasWidths, menu, openMenu, closeMenu, resetWidths, fitToData, fitToHeader, fitToScreen, startResize } =
     useColResize(columns);
 
-  const [selRow, setSelRow] = useState(null);
-  const [selCol, setSelCol] = useState(null);
-  const [allSel, setAllSel] = useState(false);
-  // editCell: { rowIdx, col } | null
-  const [editCell, setEditCell] = useState(null);
+  const [selRow, setSelRow]       = useState(null);
+  const [selCol, setSelCol]       = useState(null);
+  const [allSel, setAllSel]       = useState(false);
+  const [editCell, setEditCell]   = useState(null);
+  const [frozenPkCols, setFrozenPkCols] = useState(false);
+  const [thWidths, setThWidths]   = useState({});  // measured rendered widths
+
+  // Measure actual rendered header cell widths after layout
+  useLayoutEffect(() => {
+    const widths = {};
+    Object.entries(thElsRef.current).forEach(([col, el]) => {
+      if (el) widths[col] = el.offsetWidth;
+    });
+    setThWidths(widths);
+  }, [columns]);
 
   // Normalize editableColumns to a Set
   const editableSet = editableColumns
     ? (editableColumns instanceof Set ? editableColumns : new Set(editableColumns))
     : new Set();
+
+  const pkSet    = new Set(primaryKeyColumns || []);
+  const hasPkCols = pkSet.size > 0;
+
+  // Compute frozen PK column left offsets (only when frozenPkCols toggle is on)
+  const colFrozenLeft = {};
+  let lastFrozenPkCol = null;
+  if (frozenPkCols && hasPkCols) {
+    let offset = ROW_NUM_WIDTH;
+    for (const col of columns) {
+      if (pkSet.has(col)) {
+        colFrozenLeft[col] = offset;
+        offset += hasWidths ? (colWidths[col] || 100) : (thWidths[col] || 120);
+        lastFrozenPkCol = col;
+      }
+    }
+  }
+  const hasFrozenPkCols = lastFrozenPkCol !== null;
 
   const handleCellClick = useCallback((rowIdx, col) => {
     setSelRow(rowIdx);
@@ -98,7 +129,6 @@ const DataGrid = forwardRef(function DataGrid({
   }, [selRow, selCol]);
 
   function handleKeyDown(e) {
-    // Don't intercept keyboard when editing a cell
     if (editCell) return;
 
     // ── Arrow key navigation ──
@@ -135,9 +165,7 @@ const DataGrid = forwardRef(function DataGrid({
       setSelCol(null);
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-      // 더블클릭으로 텍스트를 직접 선택한 경우 → 브라우저 기본 복사에 맡김
       if (window.getSelection()?.toString()) return;
-      // 단일 셀이 선택된 경우 → 셀 값을 plain text로 복사
       if (selRow !== null && selCol !== null) {
         e.preventDefault();
         const val = rows[selRow]?.[selCol];
@@ -221,40 +249,73 @@ const DataGrid = forwardRef(function DataGrid({
         <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: hasWidths ? 'fixed' : 'auto' }}>
           {hasWidths && (
             <colgroup>
-              <col style={{ width: 44 }} />
+              <col style={{ width: ROW_NUM_WIDTH }} />
               {columns.map(c => <col key={c} style={{ width: colWidths[c] }} />)}
             </colgroup>
           )}
           <thead>
             <tr>
-              <th style={thStyle({ width: 44, cursor: 'default' })}>#</th>
-              {columns.map(col => (
-                <th
-                  key={col}
-                  style={thStyle({
-                    cursor: onSort ? 'pointer' : 'default',
-                    whiteSpace: 'nowrap', position: 'relative', userSelect: 'none',
-                    background: selCol === col ? 'rgba(79,193,255,0.22)' : 'var(--bg-panel)',
-                    color: selCol === col ? 'var(--accent-bright)' : 'var(--text-secondary)',
-                    borderBottom: selCol === col ? '2px solid var(--accent-bright)' : '1px solid var(--border)',
-                  })}
-                  onClick={() => onSort?.(col)}
-                  onContextMenu={openMenu}
-                >
-                  {col}
-                  {sortColumn === col && (
-                    <span style={{ marginLeft: 4, color: 'var(--accent-bright)' }}>
-                      {sortDir === 'DESC' ? '▼' : '▲'}
-                    </span>
+              {/* ── # corner cell: always sticky (top + left) ── */}
+              <th style={thStyle({
+                width: ROW_NUM_WIDTH, cursor: 'default',
+                left: 0, zIndex: 4,
+                boxShadow: !hasFrozenPkCols ? FREEZE_SHADOW : undefined,
+              })}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <span>#</span>
+                  {hasPkCols && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setFrozenPkCols(f => !f); }}
+                      title={frozenPkCols ? 'PK 컬럼 고정 해제' : 'PK 컬럼 고정'}
+                      style={{
+                        padding: '1px 4px', fontSize: 9, lineHeight: 1.3,
+                        background: frozenPkCols ? 'var(--accent)' : 'transparent',
+                        border: `1px solid ${frozenPkCols ? 'var(--accent-bright)' : 'var(--border)'}`,
+                        color: frozenPkCols ? 'var(--accent-bright)' : 'var(--text-dim)',
+                        borderRadius: 2, cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}
+                    >PK</button>
                   )}
-                  <div
-                    style={{ position: 'absolute', right: 0, top: 0, width: 5, height: '100%', cursor: 'col-resize', zIndex: 2 }}
-                    onMouseDown={e => startResize(e, col)}
-                    onClick={e => e.stopPropagation()}
-                    onContextMenu={e => e.stopPropagation()}
-                  />
-                </th>
-              ))}
+                </div>
+              </th>
+
+              {columns.map(col => {
+                const isFrozenPk  = col in colFrozenLeft;
+                const isLastFrozen = col === lastFrozenPkCol;
+                return (
+                  <th
+                    key={col}
+                    ref={el => { thElsRef.current[col] = el; }}
+                    style={thStyle({
+                      cursor: onSort ? 'pointer' : 'default',
+                      whiteSpace: 'nowrap', position: 'relative', userSelect: 'none',
+                      background: selCol === col ? 'rgba(79,193,255,0.22)' : 'var(--bg-panel)',
+                      color: selCol === col ? 'var(--accent-bright)' : 'var(--text-secondary)',
+                      borderBottom: selCol === col ? '2px solid var(--accent-bright)' : '1px solid var(--border)',
+                      ...(isFrozenPk && {
+                        left: colFrozenLeft[col],
+                        zIndex: 3,
+                        ...(isLastFrozen && { boxShadow: FREEZE_SHADOW }),
+                      }),
+                    })}
+                    onClick={() => onSort?.(col)}
+                    onContextMenu={openMenu}
+                  >
+                    {col}
+                    {sortColumn === col && (
+                      <span style={{ marginLeft: 4, color: 'var(--accent-bright)' }}>
+                        {sortDir === 'DESC' ? '▼' : '▲'}
+                      </span>
+                    )}
+                    <div
+                      style={{ position: 'absolute', right: 0, top: 0, width: 5, height: '100%', cursor: 'col-resize', zIndex: 2 }}
+                      onMouseDown={e => startResize(e, col)}
+                      onClick={e => e.stopPropagation()}
+                      onContextMenu={e => e.stopPropagation()}
+                    />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -276,6 +337,8 @@ const DataGrid = forwardRef(function DataGrid({
                   onEditCommit={handleEditCommit}
                   onEditCancel={handleEditCancel}
                   pendingCellKeys={pendingCellKeys}
+                  frozenColLeft={colFrozenLeft}
+                  lastFrozenPkCol={lastFrozenPkCol}
                 />
               );
             })}
@@ -387,23 +450,63 @@ const DataRow = React.memo(function DataRow({
   onCellClick, onCellDoubleClick,
   onEditCommit, onEditCancel,
   pendingCellKeys,
+  frozenColLeft = {},      // { col: leftPx } — only frozen PK cols appear here
+  lastFrozenPkCol = null,  // rightmost frozen PK col name, for shadow
 }) {
   const rowBg = isRowSel
     ? 'rgba(79,193,255,0.16)'
     : (index % 2 === 1 ? 'rgba(255,255,255,0.03)' : 'transparent');
 
+  // Opaque base for sticky cells (they overlay other content when scrolling)
+  const stickyBaseBg = index % 2 === 1 ? '#212121' : '#1e1e1e';
+  const rowNumBg = isRowSel
+    ? 'color-mix(in srgb, #1e1e1e 75%, #4fc1ff)'
+    : stickyBaseBg;
+
+  const hasFrozenCols = lastFrozenPkCol !== null;
+
   return (
     <tr style={{ background: rowBg, cursor: 'default' }}>
-      <td style={{ ...TD_ROW_NUM, background: isRowSel ? 'rgba(79,193,255,0.25)' : undefined, color: isRowSel ? 'var(--accent-bright)' : 'var(--text-dim)', fontWeight: isRowSel ? 700 : 400 }}>
+      {/* ── Row number: always sticky left ── */}
+      <td style={{
+        ...TD_ROW_NUM,
+        background: rowNumBg,
+        color: isRowSel ? 'var(--accent-bright)' : 'var(--text-dim)',
+        fontWeight: isRowSel ? 700 : 400,
+        boxShadow: !hasFrozenCols ? FREEZE_SHADOW : undefined,
+      }}>
         {rowOffset + index + 1}
       </td>
+
       {columns.map(col => {
-        const val = row[col];
-        const isSelCol = col === selCol;
+        const val      = row[col];
+        const isSelCol  = col === selCol;
         const isSelCell = isRowSel && isSelCol;
         const isEditing = editCell && editCell.rowIdx === index && editCell.col === col;
-        const canEdit = editableSet.has(col);
+        const canEdit   = editableSet.has(col);
         const isPending = pendingCellKeys?.has(`${index}::${col}`);
+        const isFrozen  = col in frozenColLeft;
+        const isLastFrozen = col === lastFrozenPkCol;
+
+        // Opaque background for frozen PK cells
+        const frozenBg = isFrozen
+          ? isPending
+            ? 'color-mix(in srgb, #1e1e1e 82%, #ffc83c)'
+            : isSelCell
+              ? 'color-mix(in srgb, #1e1e1e 68%, #4fc1ff)'
+              : isSelCol
+                ? 'color-mix(in srgb, #1e1e1e 92%, #4fc1ff)'
+                : isRowSel
+                  ? 'color-mix(in srgb, #1e1e1e 84%, #4fc1ff)'
+                  : stickyBaseBg
+          : undefined;
+
+        // Combine selection inset shadow + frozen right-edge shadow
+        const selShadow = isPending
+          ? 'inset 0 0 0 1px rgba(255,200,60,0.6)'
+          : isSelCell ? 'inset 0 0 0 1px rgba(79,193,255,0.7)' : null;
+        const edgeShadow = isLastFrozen ? FREEZE_SHADOW : null;
+        const boxShadow = [selShadow, edgeShadow].filter(Boolean).join(', ') || undefined;
 
         return (
           <td
@@ -411,17 +514,22 @@ const DataRow = React.memo(function DataRow({
             data-cell={`${index}::${col}`}
             style={{
               ...TD_DATA,
-              background: isPending
-                ? 'rgba(255,200,60,0.18)'
-                : isSelCell
-                  ? 'rgba(79,193,255,0.32)'
-                  : isSelCol
-                    ? 'rgba(79,193,255,0.08)'
-                    : undefined,
-              boxShadow: isPending
-                ? 'inset 0 0 0 1px rgba(255,200,60,0.6)'
-                : isSelCell ? 'inset 0 0 0 1px rgba(79,193,255,0.7)' : undefined,
+              background: isFrozen
+                ? frozenBg
+                : isPending
+                  ? 'rgba(255,200,60,0.18)'
+                  : isSelCell
+                    ? 'rgba(79,193,255,0.32)'
+                    : isSelCol
+                      ? 'rgba(79,193,255,0.08)'
+                      : undefined,
+              boxShadow,
               cursor: canEdit ? 'text' : 'default',
+              ...(isFrozen && {
+                position: 'sticky',
+                left: frozenColLeft[col],
+                zIndex: 1,
+              }),
             }}
             onClick={() => onCellClick(index, col)}
             onDoubleClick={() => onCellDoubleClick(index, col)}
@@ -434,7 +542,9 @@ const DataRow = React.memo(function DataRow({
                 onCancel={onEditCancel}
               />
             ) : (
-              val == null ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span> : String(val)
+              val == null
+                ? <span className="null-val" style={{ fontStyle: 'italic', color: 'rgba(180,180,180,0.6)', fontSize: '0.9em' }}>(null)</span>
+                : String(val)
             )}
           </td>
         );
@@ -443,8 +553,30 @@ const DataRow = React.memo(function DataRow({
   );
 });
 
-const TD_ROW_NUM = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', textAlign: 'right', userSelect: 'none' };
-const TD_DATA    = { padding: '3px 8px', borderBottom: '1px solid rgba(62,62,66,0.5)', borderRight: '1px solid rgba(62,62,66,0.3)', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+// Shadow rendered on the right edge of the last frozen column
+const FREEZE_SHADOW = '4px 0 8px rgba(0,0,0,0.5)';
+
+// # column td: always position:sticky left:0
+const TD_ROW_NUM = {
+  padding: '3px 8px',
+  borderBottom: '1px solid rgba(62,62,66,0.5)',
+  borderRight: '1px solid rgba(62,62,66,0.3)',
+  textAlign: 'right',
+  userSelect: 'none',
+  position: 'sticky',
+  left: 0,
+  zIndex: 1,
+};
+
+const TD_DATA = {
+  padding: '3px 8px',
+  borderBottom: '1px solid rgba(62,62,66,0.5)',
+  borderRight: '1px solid rgba(62,62,66,0.3)',
+  color: 'var(--text-primary)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
 
 function thStyle(extra = {}) {
   return {
