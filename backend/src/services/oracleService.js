@@ -1123,6 +1123,40 @@ export async function rollbackTransaction(txId) {
   return { success: true };
 }
 
+// ── 컬럼명 검색 (스키마 내 전체 테이블) ──
+export async function searchColumns(id, schema, colName) {
+  const r = await execute(id, `
+    SELECT tc.TABLE_NAME, tc.COLUMN_NAME, tc.DATA_TYPE,
+           tc.DATA_LENGTH, tc.DATA_PRECISION, tc.DATA_SCALE,
+           tc.CHAR_LENGTH, tc.CHAR_USED,
+           tc.NULLABLE, tc.DATA_DEFAULT,
+           cc.COMMENTS
+    FROM ALL_TAB_COLUMNS tc
+    LEFT JOIN ALL_COL_COMMENTS cc
+      ON cc.OWNER = tc.OWNER AND cc.TABLE_NAME = tc.TABLE_NAME AND cc.COLUMN_NAME = tc.COLUMN_NAME
+    WHERE tc.OWNER = :schema AND tc.COLUMN_NAME LIKE :colName
+    ORDER BY tc.TABLE_NAME, tc.COLUMN_POSITION
+  `, { schema, colName });
+  return { rows: r.rows };
+}
+
+// ── 테이블 전체 목록 조회 (테이블명 + 코멘트) ──
+export async function getTableList(id, schema) {
+  const r = await execute(id, `
+    SELECT t.TABLE_NAME,
+           c.COMMENTS,
+           TO_CHAR(o.LAST_DDL_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LAST_DDL_TIME
+    FROM ALL_TABLES t
+    LEFT JOIN ALL_TAB_COMMENTS c
+      ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME
+    LEFT JOIN ALL_OBJECTS o
+      ON o.OWNER = t.OWNER AND o.OBJECT_NAME = t.TABLE_NAME AND o.OBJECT_TYPE = 'TABLE'
+    WHERE t.OWNER = :schema
+    ORDER BY t.TABLE_NAME
+  `, { schema });
+  return { rows: r.rows };
+}
+
 process.on('SIGTERM', async () => {
   for (const [, entry] of pools) {
     try { await entry.pool.close(0); } catch {}

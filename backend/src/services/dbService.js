@@ -94,6 +94,9 @@ export const executeDml = delegate('executeDml');
 export const executeRaw = delegate('executeRaw');
 export const searchObjects = delegate('searchObjects');
 
+export const searchColumns = delegate('searchColumns');
+export const getTableList = delegate('getTableList');
+
 export const beginTransaction = delegate('beginTransaction');
 
 // txId 기반 — id 라우팅 불필요, Oracle 전용으로 직접 위임

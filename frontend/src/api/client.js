@@ -73,6 +73,12 @@ export const api = {
   rollbackTransaction: (id, txId) =>
     request(`/oracle/${id}/transaction/${txId}/rollback`, { method: 'POST' }),
 
+  searchColumns: (id, schema, colName) => {
+    const params = new URLSearchParams({ schema, colName });
+    return request(`/oracle/${id}/columns/search?${params}`);
+  },
+  getTableList: (id, schema) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/list`),
+
   getSessions: (id) => request(`/oracle/${id}/sessions`),
   getLocks: (id) => request(`/oracle/${id}/locks`),
 

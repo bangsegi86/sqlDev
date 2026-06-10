@@ -7,6 +7,8 @@ import SourceDetail from '../ObjectDetail/SourceDetail.jsx';
 import SequenceDetail from '../ObjectDetail/SequenceDetail.jsx';
 import ErdViewer from '../ObjectDetail/ErdViewer.jsx';
 import SessionMonitor from '../ObjectDetail/SessionMonitor.jsx';
+import ColumnSearchTab from '../ObjectDetail/ColumnSearchTab.jsx';
+import TableListTab from '../ObjectDetail/TableListTab.jsx';
 
 export default function RightPanel() {
   const { state } = useApp();
@@ -71,5 +73,7 @@ function TabContent({ tab }) {
   if (tab.type === 'sequence') return <SequenceDetail tab={tab} />;
   if (tab.type === 'erd') return <ErdViewer tab={tab} />;
   if (tab.type === 'monitor') return <SessionMonitor connectionId={tab.connectionId} />;
+  if (tab.type === 'column-search') return <ColumnSearchTab connectionId={tab.connectionId} schema={tab.content.schema} />;
+  if (tab.type === 'table-list') return <TableListTab connectionId={tab.connectionId} schema={tab.content.schema} />;
   return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>Unknown tab type: {tab.type}</div>;
 }

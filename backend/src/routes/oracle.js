@@ -225,6 +225,18 @@ router.post('/:id/execute-dml', wrap(async (req, res) => {
   res.json(await oracle.executeDml(req.params.id, sql, binds || {}));
 }));
 
+// ── 컬럼 검색 (스키마 내 컬럼명 LIKE 검색)
+router.get('/:id/columns/search', wrap(async (req, res) => {
+  const { schema, colName } = req.query;
+  if (!schema) return res.status(400).json({ error: 'schema is required' });
+  res.json(await oracle.searchColumns(req.params.id, schema, colName || '%'));
+}));
+
+// ── 테이블 전체 목록 (이름 + 코멘트)
+router.get('/:id/tables/:schema/list', wrap(async (req, res) => {
+  res.json(await oracle.getTableList(req.params.id, req.params.schema));
+}));
+
 // ── 세션 모니터링
 router.get('/:id/sessions', wrap(async (req, res) => {
   try {

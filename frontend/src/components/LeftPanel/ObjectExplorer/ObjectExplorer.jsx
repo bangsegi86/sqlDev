@@ -444,6 +444,31 @@ export default function ObjectExplorer() {
               <div className="ctx-menu-item" onClick={openMonitor}>
                 &#128202; 세션/락 모니터링
               </div>
+              <div className="ctx-menu-sep" />
+              <div className="ctx-menu-item" onClick={() => {
+                openTab(dispatch, stateRef.current, {
+                  id: `col-search-${activeConnectionId}-${ctxMenu.schema}`,
+                  type: 'column-search',
+                  title: `컬럼 검색: ${ctxMenu.schema}`,
+                  connectionId: activeConnectionId,
+                  content: { schema: ctxMenu.schema },
+                });
+                setCtxMenu(null);
+              }}>
+                🔍 컬럼 검색/편집
+              </div>
+              <div className="ctx-menu-item" onClick={() => {
+                openTab(dispatch, stateRef.current, {
+                  id: `table-list-${activeConnectionId}-${ctxMenu.schema}`,
+                  type: 'table-list',
+                  title: `테이블 목록: ${ctxMenu.schema}`,
+                  connectionId: activeConnectionId,
+                  content: { schema: ctxMenu.schema },
+                });
+                setCtxMenu(null);
+              }}>
+                📋 테이블 목록 편집
+              </div>
             </>
           ) : <>
           {(() => {
