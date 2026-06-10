@@ -14,7 +14,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const [filter, setFilter] = useState('');
 
   const [pkColumns, setPkColumns] = useState([]);
-  const [editMode, setEditMode] = useState(false);
 
   // Staged changes: { key, rowIdx, col, oldVal, newVal, sql, binds }
   const [pendingChanges, setPendingChanges] = useState([]);
@@ -57,7 +56,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    setEditMode(false);
     setPendingChanges([]);
     setConfirmOpen(false);
   }, [connectionId, schema, tableName]);
@@ -181,7 +179,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   }
 
   const totalPages = data ? Math.ceil(data.total / limit) : 1;
-  const editableColumns = canEdit && editMode && data
+  const editableColumns = canEdit && data
     ? new Set(data.columns.filter(c => !pkColumns.includes(c)))
     : new Set();
   const pendingCellKeys = new Set(pendingChanges.map(c => c.key));
@@ -294,23 +292,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
 
         {data && <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>총 {data.total.toLocaleString()}행</span>}
 
-        {canEdit && (
-          <button
-            className={editMode ? 'btn-primary' : 'btn-secondary'}
-            onClick={() => {
-              if (editMode && pendingChanges.length > 0) {
-                if (!window.confirm('편집 모드를 종료하면 미반영 변경사항이 모두 취소됩니다. 계속하시겠습니까?')) return;
-                discardAll();
-              }
-              setEditMode(e => !e);
-            }}
-            disabled={executing}
-            style={{ padding: '2px 8px', flexShrink: 0 }}
-          >
-            {editMode ? '✏ 편집 중' : '✏ 편집 모드'}
-          </button>
-        )}
-
         {(loading || executing) && <span className="spinner" />}
       </div>
 
@@ -339,7 +320,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
       )}
 
       {/* ── Pending Changes Panel ── */}
-      {editMode && pendingChanges.length > 0 && (
+      {pendingChanges.length > 0 && (
         <div style={{
           background: 'var(--bg-panel)', borderTop: '2px solid var(--accent)',
           padding: '8px 12px', flexShrink: 0, maxHeight: 180, overflow: 'auto',
