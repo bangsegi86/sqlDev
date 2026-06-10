@@ -1135,7 +1135,7 @@ export async function searchColumns(id, schema, colName) {
     LEFT JOIN ALL_COL_COMMENTS cc
       ON cc.OWNER = tc.OWNER AND cc.TABLE_NAME = tc.TABLE_NAME AND cc.COLUMN_NAME = tc.COLUMN_NAME
     WHERE tc.OWNER = :schema AND tc.COLUMN_NAME LIKE :colName
-    ORDER BY tc.TABLE_NAME, tc.COLUMN_POSITION
+    ORDER BY tc.TABLE_NAME, tc.COLUMN_ID
   `, { schema, colName });
   return { rows: r.rows };
 }
