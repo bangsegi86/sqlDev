@@ -1145,7 +1145,7 @@ export async function getTableList(id, schema) {
   const r = await execute(id, `
     SELECT t.TABLE_NAME,
            c.COMMENTS,
-           TO_CHAR(o.LAST_DDL_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LAST_DDL_TIME
+           o.LAST_DDL_TIME
     FROM ALL_TABLES t
     LEFT JOIN ALL_TAB_COMMENTS c
       ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME
