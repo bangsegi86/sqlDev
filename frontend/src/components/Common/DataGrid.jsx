@@ -52,10 +52,12 @@ export default function DataGrid({
     if (oldVal !== newVal && onCellEdit) {
       onCellEdit(rowIdx, col, oldVal, newVal);
     }
+    requestAnimationFrame(() => containerRef.current?.focus());
   }, [onCellEdit]);
 
   const handleEditCancel = useCallback(() => {
     setEditCell(null);
+    requestAnimationFrame(() => containerRef.current?.focus());
   }, []);
 
   // 선택 셀이 키보드 이동으로 바뀔 때 스크롤 추적
@@ -122,8 +124,27 @@ export default function DataGrid({
         navigator.clipboard.writeText(text).catch(() => {});
       }
     }
+    // Ctrl+V: 선택된 편집 가능 셀에 클립보드 내용 붙여넣기
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      if (selRow !== null && selCol !== null && editableSet.has(selCol)) {
+        e.preventDefault();
+        navigator.clipboard.readText().then(text => {
+          if (text == null) return;
+          const oldVal = rows[selRow]?.[selCol];
+          if (onCellEdit) onCellEdit(selRow, selCol, oldVal == null ? '' : String(oldVal), text);
+        }).catch(() => {});
+      }
+    }
     if (e.key === 'Escape') {
       setSelRow(null); setSelCol(null); setAllSel(false);
+    }
+    // 일반 문자 입력 → 편집 가능 셀이면 즉시 편집 모드 진입 (입력 문자를 초기값으로)
+    if (
+      e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey &&
+      selRow !== null && selCol !== null && editableSet.has(selCol)
+    ) {
+      e.preventDefault();
+      setEditCell({ rowIdx: selRow, col: selCol, initialChar: e.key });
     }
   }
 
@@ -274,13 +295,20 @@ export default function DataGrid({
 }
 
 // Inline edit input component
-function EditInput({ value, onCommit, onCancel }) {
-  const [draft, setDraft] = useState(value == null ? '' : String(value));
+function EditInput({ value, initialChar, onCommit, onCancel }) {
+  const [draft, setDraft] = useState(initialChar !== undefined ? initialChar : (value == null ? '' : String(value)));
   const inputRef = useRef(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
+    if (!inputRef.current) return;
+    inputRef.current.focus();
+    if (initialChar !== undefined) {
+      // 문자 입력으로 시작: 커서를 맨 끝에
+      const len = draft.length;
+      inputRef.current.setSelectionRange(len, len);
+    } else {
+      inputRef.current.select();
+    }
   }, []);
 
   function handleKeyDown(e) {
@@ -368,6 +396,7 @@ const DataRow = React.memo(function DataRow({
             {isEditing ? (
               <EditInput
                 value={val}
+                initialChar={editCell?.initialChar}
                 onCommit={newVal => onEditCommit(index, col, val, newVal)}
                 onCancel={onEditCancel}
               />
