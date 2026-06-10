@@ -13,6 +13,8 @@ export default function TableListTab({ connectionId, schema }) {
   const [pendingChanges, setPendingChanges] = useState([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState('ASC');
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
@@ -22,8 +24,35 @@ export default function TableListTab({ connectionId, schema }) {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
+  function handleSort(col) {
+    if (!rows) return;
+    const newDir = sortCol === col ? (sortDir === 'ASC' ? 'DESC' : 'ASC') : 'ASC';
+    setSortCol(col);
+    setSortDir(newDir);
+
+    const indexed = rows.map((r, i) => ({ row: r, origIdx: i }));
+    indexed.sort((a, b) => {
+      const av = a.row[col], bv = b.row[col];
+      let cmp;
+      if (av == null && bv == null) cmp = 0;
+      else if (av == null) cmp = -1;
+      else if (bv == null) cmp = 1;
+      else if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+      else cmp = String(av).localeCompare(String(bv));
+      return newDir === 'ASC' ? cmp : -cmp;
+    });
+    const indexMap = new Map(indexed.map(({ origIdx }, newIdx) => [origIdx, newIdx]));
+    setRows(indexed.map(({ row }) => row));
+    setOriginalRows(prev => prev ? indexed.map(({ origIdx }) => prev[origIdx]) : prev);
+    setPendingChanges(prev => prev.map(c => ({
+      ...c,
+      key: `${indexMap.get(c.rowIdx)}::${c.field}`,
+      rowIdx: indexMap.get(c.rowIdx),
+    })));
+  }
+
   async function load() {
-    setLoading(true); setError(''); setPendingChanges([]);
+    setLoading(true); setError(''); setPendingChanges([]); setSortCol(null); setSortDir('ASC');
     try {
       const result = await api.getTableList(connectionId, schema);
       const data = result.rows || [];
@@ -186,7 +215,9 @@ export default function TableListTab({ connectionId, schema }) {
           primaryKeyColumns={[]}
           onCellEdit={handleCellEdit}
           pendingCellKeys={new Set(pendingChanges.map(c => c.key))}
-          onSort={() => {}}
+          onSort={handleSort}
+          sortColumn={sortCol}
+          sortDir={sortDir}
         />
       )}
 
