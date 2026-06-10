@@ -584,8 +584,16 @@ export async function countSQL(id, sql, schema) {
 
 function buildColTypePart(col) {
   const dt = col.DATA_TYPE;
-  if (['VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR'].includes(dt))
-    return `${dt}(${col.DATA_LENGTH})`;
+  if (['VARCHAR2', 'NVARCHAR2'].includes(dt)) {
+    const len = col.CHAR_USED === 'C' && col.CHAR_LENGTH != null
+      ? `${col.CHAR_LENGTH} CHAR` : col.DATA_LENGTH;
+    return `${dt}(${len})`;
+  }
+  if (['CHAR', 'NCHAR'].includes(dt)) {
+    const len = col.CHAR_USED === 'C' && col.CHAR_LENGTH != null
+      ? `${col.CHAR_LENGTH} CHAR` : col.DATA_LENGTH;
+    return `${dt}(${len})`;
+  }
   if (dt === 'NUMBER')
     return col.DATA_PRECISION != null
       ? `NUMBER(${col.DATA_PRECISION}${col.DATA_SCALE ? ',' + col.DATA_SCALE : ''})`
@@ -600,6 +608,10 @@ function buildColTypePart(col) {
 }
 
 function buildColDef(col) {
+  if (col.VIRTUAL_COLUMN === 'YES') {
+    const expr = col.DATA_DEFAULT ? col.DATA_DEFAULT.trim() : 'NULL';
+    return `  ${col.COLUMN_NAME.padEnd(32)}GENERATED ALWAYS AS (${expr}) VIRTUAL`;
+  }
   const typePart = buildColTypePart(col);
   const defPart  = col.DATA_DEFAULT != null ? ` DEFAULT ${col.DATA_DEFAULT.trim()}` : '';
   const nullPart = col.NULLABLE === 'N' ? ' NOT NULL' : '';
@@ -607,12 +619,15 @@ function buildColDef(col) {
 }
 
 export async function generateColumnReorderScript(id, schema, tableName, newColumnOrder) {
-  const tmpName = `${tableName}_REORDER_TMP`;
+  // Identifier length: Oracle 12c and below limit is 30 chars
+  const suffix = '_REORDER_TMP';
+  const tmpName = `${tableName.slice(0, 30 - suffix.length)}${suffix}`;
 
   // ── Parallel metadata queries ──────────────────────────────
-  const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult] = await Promise.all([
+  const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult, tblCmtResult, trigResult] = await Promise.all([
     execute(id,
-      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT
+      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
+              VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
        FROM ALL_TAB_COLUMNS
        WHERE OWNER = :schema AND TABLE_NAME = :table
        ORDER BY COLUMN_ID`,
@@ -657,10 +672,14 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
 
     execute(id,
       `SELECT i.INDEX_NAME, i.INDEX_TYPE, i.UNIQUENESS,
-              ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND
+              ic.COLUMN_NAME, ic.COLUMN_POSITION, ic.DESCEND,
+              ie.COLUMN_EXPRESSION
        FROM ALL_INDEXES i
        JOIN ALL_IND_COLUMNS ic
          ON i.INDEX_NAME = ic.INDEX_NAME AND i.OWNER = ic.INDEX_OWNER
+       LEFT JOIN ALL_IND_EXPRESSIONS ie
+         ON ie.INDEX_NAME = ic.INDEX_NAME AND ie.INDEX_OWNER = ic.INDEX_OWNER
+            AND ie.COLUMN_POSITION = ic.COLUMN_POSITION
        WHERE i.OWNER = :schema AND i.TABLE_NAME = :table
          AND NOT EXISTS (
            SELECT 1 FROM ALL_CONSTRAINTS con
@@ -676,8 +695,19 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
 
     execute(id,
       `SELECT GRANTEE, PRIVILEGE, GRANTABLE FROM ALL_TAB_PRIVS
-       WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
+       WHERE OWNER = :schema AND TABLE_NAME = :table
        ORDER BY GRANTEE, PRIVILEGE`,
+      { schema, table: tableName }).catch(() => ({ rows: [] })),
+
+    execute(id,
+      `SELECT COMMENTS FROM ALL_TAB_COMMENTS
+       WHERE OWNER = :schema AND TABLE_NAME = :table AND COMMENTS IS NOT NULL`,
+      { schema, table: tableName }).catch(() => ({ rows: [] })),
+
+    execute(id,
+      `SELECT TRIGGER_NAME, TRIGGER_TYPE, TRIGGERING_EVENT
+       FROM ALL_TRIGGERS
+       WHERE OWNER = :schema AND TABLE_NAME = :table`,
       { schema, table: tableName }).catch(() => ({ rows: [] })),
   ]);
 
@@ -730,19 +760,29 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   const idxMap = {};
   for (const row of idxResult.rows) {
     if (!idxMap[row.INDEX_NAME])
-      idxMap[row.INDEX_NAME] = { unique: row.UNIQUENESS === 'UNIQUE', cols: [], descends: [] };
+      idxMap[row.INDEX_NAME] = {
+        unique: row.UNIQUENESS === 'UNIQUE',
+        type: row.INDEX_TYPE,   // 'BITMAP', 'FUNCTION-BASED NORMAL', 'NORMAL', etc.
+        cols: [], descends: [], exprs: [],
+      };
     idxMap[row.INDEX_NAME].cols.push(row.COLUMN_NAME);
     idxMap[row.INDEX_NAME].descends.push(row.DESCEND);
+    idxMap[row.INDEX_NAME].exprs.push(row.COLUMN_EXPRESSION || null);
   }
 
   // Column definition map
   const colDefs = Object.fromEntries(colResult.rows.map(c => [c.COLUMN_NAME, c]));
 
-  // Validate newColumnOrder contains all columns
+  // Separate virtual and real columns
+  const virtualColSet = new Set(
+    colResult.rows.filter(c => c.VIRTUAL_COLUMN === 'YES').map(c => c.COLUMN_NAME)
+  );
   const allCols = colResult.rows.map(c => c.COLUMN_NAME);
   const orderedCols = newColumnOrder.filter(c => allCols.includes(c));
   // Add any missing columns at the end (defensive)
   for (const c of allCols) if (!orderedCols.includes(c)) orderedCols.push(c);
+  // Non-virtual columns for INSERT/SELECT
+  const insertCols = orderedCols.filter(c => !virtualColSet.has(c));
 
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   const qSchema = `"${schema}"`;
@@ -761,6 +801,11 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   ln(`-- ${'='.repeat(60)}`);
   ln(`-- ⚠  주의: 테이블 재생성 방식입니다.`);
   ln(`--    실행 전 반드시 전체 백업을 수행하세요.`);
+  if (trigResult.rows.length > 0) {
+    ln(`-- ⚠  트리거는 자동 재생성되지 않습니다. 별도 확인 필요:`);
+    for (const t of trigResult.rows)
+      ln(`--     - ${t.TRIGGER_NAME} (${t.TRIGGER_TYPE} ${t.TRIGGERING_EVENT})`);
+  }
   ln(`-- ${'='.repeat(60)}`);
 
   // ── Step 1: Drop referencing FKs from other tables ────────
@@ -787,7 +832,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   // ── Step 3: Copy data ─────────────────────────────────────
   sep();
   ln(`-- [Step 3] 데이터 복사`);
-  const colList = orderedCols.map(c => `"${c}"`).join(', ');
+  const colList = insertCols.map(c => `"${c}"`).join(', ');
   ln(`INSERT /*+ APPEND */ INTO ${qSchema}.${qTmp} (${colList})`);
   ln(`  SELECT ${colList} FROM ${qSchema}.${qTable};`);
   ln(`COMMIT;`);
@@ -802,6 +847,8 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   ln(`-- [Step 5] 임시 테이블 이름 변경`);
   ln(`ALTER TABLE ${qSchema}.${qTmp} RENAME TO "${tableName}";`);
 
+  const disabledClause = (status) => status === 'DISABLED' ? ' DISABLE' : '';
+
   // ── Step 6: Recreate PK ───────────────────────────────────
   const pkEntries = Object.entries(conMap).filter(([, v]) => v.type === 'P');
   if (pkEntries.length > 0) {
@@ -809,7 +856,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
     ln(`-- [Step 6] PRIMARY KEY 재생성`);
     for (const [cname, con] of pkEntries) {
       const cols = con.cols.map(c => `"${c}"`).join(', ');
-      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" PRIMARY KEY (${cols});`);
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" PRIMARY KEY (${cols})${disabledClause(con.status)};`);
     }
   }
 
@@ -820,7 +867,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
     ln(`-- [Step 7] UNIQUE 제약조건 재생성`);
     for (const [cname, con] of ukEntries) {
       const cols = con.cols.map(c => `"${c}"`).join(', ');
-      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" UNIQUE (${cols});`);
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" UNIQUE (${cols})${disabledClause(con.status)};`);
     }
   }
 
@@ -830,8 +877,8 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   if (ckEntries.length > 0) {
     sep();
     ln(`-- [Step 8] CHECK 제약조건 재생성`);
-    for (const [cname] of ckEntries) {
-      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" CHECK (${checkConditions[cname]});`);
+    for (const [cname, con] of ckEntries) {
+      ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}" CHECK (${checkConditions[cname]})${disabledClause(con.status)};`);
     }
   }
 
@@ -847,7 +894,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
       const onDelete  = con.delete_rule && con.delete_rule !== 'NO ACTION'
         ? ` ON DELETE ${con.delete_rule}` : '';
       ln(`ALTER TABLE ${qSchema}.${qTable} ADD CONSTRAINT "${cname}"`);
-      ln(`  FOREIGN KEY (${localCols}) REFERENCES "${refOwner}"."${con.r_table}" (${refCols})${onDelete};`);
+      ln(`  FOREIGN KEY (${localCols}) REFERENCES "${refOwner}"."${con.r_table}" (${refCols})${onDelete}${disabledClause(con.status)};`);
     }
   }
 
@@ -856,10 +903,15 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
     sep();
     ln(`-- [Step 10] 인덱스 재생성`);
     for (const [idxName, idx] of Object.entries(idxMap)) {
-      const colParts = idx.cols.map((c, i) =>
-        `"${c}"${idx.descends[i] === 'DESC' ? ' DESC' : ''}`).join(', ');
+      const colParts = idx.cols.map((c, i) => {
+        // Function-based index: use expression if present
+        const expr = idx.exprs[i];
+        const part = expr ? expr : `"${c}"`;
+        return `${part}${idx.descends[i] === 'DESC' ? ' DESC' : ''}`;
+      }).join(', ');
       const unique = idx.unique ? 'UNIQUE ' : '';
-      ln(`CREATE ${unique}INDEX "${schema}"."${idxName}" ON ${qSchema}.${qTable} (${colParts});`);
+      const bitmap = idx.type === 'BITMAP' ? 'BITMAP ' : '';
+      ln(`CREATE ${unique}${bitmap}INDEX "${schema}"."${idxName}" ON ${qSchema}.${qTable} (${colParts});`);
     }
   }
 
@@ -877,10 +929,16 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
     }
   }
 
-  // ── Step 12: Column comments ──────────────────────────────
-  if (cmtResult.rows.length > 0) {
+  // ── Step 12: Table & column comments ─────────────────────
+  const hasTblCmt = tblCmtResult.rows.length > 0 && tblCmtResult.rows[0].COMMENTS;
+  const hasColCmt = cmtResult.rows.length > 0;
+  if (hasTblCmt || hasColCmt) {
     sep();
-    ln(`-- [Step 12] 컬럼 주석 재생성`);
+    ln(`-- [Step 12] 주석 재생성`);
+    if (hasTblCmt) {
+      const escaped = tblCmtResult.rows[0].COMMENTS.replace(/'/g, "''");
+      ln(`COMMENT ON TABLE ${qSchema}.${qTable} IS '${escaped}';`);
+    }
     for (const r of cmtResult.rows) {
       const escaped = (r.COMMENTS || '').replace(/'/g, "''");
       ln(`COMMENT ON COLUMN ${qSchema}.${qTable}."${r.COLUMN_NAME}" IS '${escaped}';`);
