@@ -33,7 +33,7 @@ export default function StatusBar() {
 
   return (
     <div style={{
-      background: '#007acc',
+      background: 'var(--bg-status, #007acc)',
       color: '#fff',
       fontSize: 11,
       display: 'flex',
@@ -59,7 +59,7 @@ export default function StatusBar() {
               <DbTypeIcon dbType={activeConn.type} />
               {activeConn.color && (
                 <span
-                  title={activeConn.color}
+                  title="환경 색상"
                   style={{
                     display: 'inline-block', width: 8, height: 8,
                     borderRadius: '50%', background: activeConn.color, flexShrink: 0,
@@ -69,7 +69,7 @@ export default function StatusBar() {
               )}
               <span style={{ fontWeight: 600 }}>{activeConn.name}</span>
               {activeConn.host && (
-                <span style={{ opacity: 0.7 }}>({activeConn.host})</span>
+                <span title={activeConn.host} style={{ opacity: 0.7 }}>({activeConn.host})</span>
               )}
             </>
           ) : (

@@ -93,7 +93,7 @@ export default function ConnectionItem({ conn }) {
         {/* Environment color dot */}
         {conn.color && (
           <span
-            title={conn.color}
+            title="환경 색상"
             style={{
               width: 8, height: 8, borderRadius: '50%',
               background: conn.color, flexShrink: 0, display: 'inline-block',
@@ -101,7 +101,7 @@ export default function ConnectionItem({ conn }) {
           />
         )}
         {/* Name */}
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+        <span title={conn.name} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
           {conn.name}
         </span>
         {/* Connecting spinner */}

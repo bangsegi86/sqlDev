@@ -30,12 +30,18 @@ export default function ConnectionForm({ onClose, editing = null }) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const isPg = form.dbType === 'postgres';
   const targetKey = isPg ? 'database' : 'serviceName';
   const targetLabel = isPg ? '데이터베이스명' : '서비스명';
 
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setTestResult(null); setError(''); }
+  function set(k, v) {
+    setForm(f => ({ ...f, [k]: v }));
+    setTestResult(null);
+    setError('');
+    setFieldErrors(prev => { const n = { ...prev }; delete n[k]; return n; });
+  }
 
   // DB 종류 변경 시 기본 포트를 알맞게 맞춰준다 (사용자가 손대지 않은 경우).
   function setDbType(v) {
@@ -58,11 +64,22 @@ export default function ConnectionForm({ onClose, editing = null }) {
   }
 
   async function handleSave(andConnect = false) {
-    if (!form.name || !form.host || !form[targetKey] || !form.username) {
+    const missing = {};
+    if (!form.name) missing.name = true;
+    if (!form.host) missing.host = true;
+    if (!form[targetKey]) missing[targetKey] = true;
+    if (!form.username) missing.username = true;
+    if (Object.keys(missing).length > 0) {
+      setFieldErrors(missing);
       setError(`이름, 호스트, ${targetLabel}, 사용자명은 필수입니다.`);
       return;
     }
-    if (!editing && !form.password) { setError('비밀번호는 필수입니다.'); return; }
+    if (!editing && !form.password) {
+      setFieldErrors({ password: true });
+      setError('비밀번호는 필수입니다.');
+      return;
+    }
+    setFieldErrors({});
     setSaving(true); setError('');
     try {
       const payload = { ...form, port: Number(form.port) || (isPg ? 5432 : 1521) };
@@ -98,29 +115,32 @@ export default function ConnectionForm({ onClose, editing = null }) {
             <option value="postgres">PostgreSQL</option>
           </select>
         </div>
-        <Field label={LABELS.name} value={form.name} onChange={v => set('name', v)} />
+        <Field label={LABELS.name} value={form.name} onChange={v => set('name', v)} required hasError={!!fieldErrors.name} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
-          <Field label={LABELS.host} value={form.host} onChange={v => set('host', v)} />
+          <Field label={LABELS.host} value={form.host} onChange={v => set('host', v)} required hasError={!!fieldErrors.host} />
           <Field label="포트" value={form.port} type="number" onChange={v => set('port', v)} />
         </div>
-        <Field label={targetLabel} value={form[targetKey]} onChange={v => set(targetKey, v)} />
-        <Field label={LABELS.username} value={form.username} onChange={v => set('username', v)} />
+        <Field label={targetLabel} value={form[targetKey]} onChange={v => set(targetKey, v)} required hasError={!!fieldErrors[targetKey]} />
+        <Field label={LABELS.username} value={form.username} onChange={v => set('username', v)} required hasError={!!fieldErrors.username} />
         <div style={{ position: 'relative' }}>
           <Field
             label={editing ? '비밀번호 (변경 시만 입력)' : '비밀번호'}
             value={form.password}
             type={showPw ? 'text' : 'password'}
             onChange={v => set('password', v)}
+            required={!editing}
+            hasError={!!fieldErrors.password}
           />
           <button
             onClick={() => setShowPw(s => !s)}
-            style={{ position: 'absolute', right: 6, bottom: 6, background: 'none', color: 'var(--text-secondary)', padding: 2 }}
-          >{showPw ? '🙈' : '👁'}</button>
+            title={showPw ? '비밀번호 숨기기' : '비밀번호 표시'}
+            style={{ position: 'absolute', right: 6, bottom: 6, background: 'none', color: 'var(--text-secondary)', padding: '1px 5px', fontSize: 10, border: '1px solid var(--border)', borderRadius: 2, cursor: 'pointer' }}
+          >{showPw ? '숨김' : '표시'}</button>
         </div>
 
         {/* Color picker */}
         <div>
-          <label style={{ display: 'block', marginBottom: 6, fontSize: 11, color: 'var(--text-secondary)' }}>환경 색상 (선택)</label>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 11, color: 'var(--text-secondary)' }}>환경 색상 <span style={{ opacity: 0.6 }}>(선택)</span></label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {ENV_COLORS.map(c => (
               <button
@@ -181,11 +201,25 @@ function friendlyError(msg, username = '') {
   return msg;
 }
 
-function Field({ label, value, onChange, type = 'text' }) {
+function Field({ label, value, onChange, type = 'text', required = false, hasError = false }) {
   return (
     <div>
-      <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: 'var(--text-secondary)' }}>{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} />
+      <label style={{ display: 'block', marginBottom: 4, fontSize: 11, color: 'var(--text-secondary)' }}>
+        {label}
+        {required && <span style={{ color: 'var(--danger)', marginLeft: 2 }}>*</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%', padding: '6px 8px',
+          background: 'var(--bg-input, #1e1e1e)', color: 'var(--text-primary)',
+          border: `1px solid ${hasError ? 'var(--danger)' : 'var(--border)'}`,
+          borderRadius: 3, outline: 'none', boxSizing: 'border-box',
+          transition: 'border-color 0.15s',
+        }}
+      />
     </div>
   );
 }

@@ -113,7 +113,7 @@ function Tab({ tab, active, onActivate, onClose, onContextMenu, onDoubleClick })
         padding: '6px 12px', cursor: 'pointer', flexShrink: 0,
         background: active ? 'var(--bg-tab-active)' : 'var(--bg-tab-inactive)',
         borderRight: '1px solid var(--border)',
-        borderTop: active ? '2px solid var(--accent-bright)' : '2px solid transparent',
+        borderTop: active ? '3px solid var(--accent-bright)' : '3px solid transparent',
         color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
         fontSize: 12, maxWidth: 180,
       }}

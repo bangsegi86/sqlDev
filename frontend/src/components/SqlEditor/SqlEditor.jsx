@@ -826,7 +826,7 @@ export default function SqlEditor({ tab }) {
         <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>F5</span>
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
         <button className="btn-secondary" onClick={explainPlan} disabled={planLoading} style={{ padding: '3px 10px' }}>
-          {planLoading ? <span className="spinner" /> : '📊 실행계획'}
+          {planLoading ? <span className="spinner" /> : '실행계획'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>F6</span>
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
@@ -880,7 +880,7 @@ export default function SqlEditor({ tab }) {
             }
             setTimeout(() => setAliasMsg(''), 2500);
           }}
-        >🏷 Alias 변경</button>
+        >Alias 변경</button>
         <button
           className="btn-secondary"
           title="Alias 명명 규칙 설정"
@@ -895,19 +895,19 @@ export default function SqlEditor({ tab }) {
           title="코드 사전 관리 — 컬럼별 코드값 조회 쿼리를 등록합니다"
           style={{ padding: '3px 10px' }}
           onClick={() => setCodeDictOpen(true)}
-        >📚 코드 사전</button>
+        >코드 사전</button>
         <button
           className="btn-secondary"
           title="이전에 실행한 쿼리 목록"
           style={{ padding: '3px 10px' }}
           onClick={() => setHistoryOpen(true)}
-        >🕘 히스토리</button>
+        >히스토리</button>
         <button
           className="btn-secondary"
           title="자주 사용하는 쿼리 북마크"
           style={{ padding: '3px 10px' }}
           onClick={() => setBookmarksOpen(true)}
-        >★ 북마크</button>
+        >북마크</button>
 
         {connId && (
           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -915,8 +915,9 @@ export default function SqlEditor({ tab }) {
             {schema && ` › ${schema}`}
           </span>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
-          F5/Ctrl+Enter 실행 (선택 시 선택만) · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체이동 · 우클릭 코드조회
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 380, flexShrink: 1 }}
+          title="F5/Ctrl+Enter 실행 (선택 시 선택만) · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭/F4 객체이동 · 우클릭 코드조회">
+          F5 실행 · F6 실행계획 · Ctrl+Space 자동완성 · Ctrl+클릭 객체이동
         </span>
       </div>
 
