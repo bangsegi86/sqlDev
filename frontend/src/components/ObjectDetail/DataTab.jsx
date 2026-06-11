@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import DataGrid from '../Common/DataGrid.jsx';
 
@@ -35,22 +35,42 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   const hasPk = pkColumns.length > 0;
   const canEdit = isTable && hasPk;
 
+  // Race condition guard for column fetch
+  const colReqRef = useRef(0);
   useEffect(() => {
     if (!isTable) return;
+    const reqId = ++colReqRef.current;
     api.getColumns(connectionId, schema, tableName)
-      .then(cols => setPkColumns(cols.filter(c => c.IS_PK).map(c => c.COLUMN_NAME)))
-      .catch(() => setPkColumns([]));
+      .then(cols => {
+        if (reqId !== colReqRef.current) return;
+        setPkColumns(cols.filter(c => c.IS_PK).map(c => c.COLUMN_NAME));
+      })
+      .catch(() => {
+        if (reqId !== colReqRef.current) return;
+        setPkColumns([]);
+      });
   }, [connectionId, schema, tableName, isTable]);
 
+  // Race condition guard for data fetch
+  const loadReqRef = useRef(0);
   const load = useCallback(() => {
+    const reqId = ++loadReqRef.current;
     setLoading(true); setError('');
     api.getTableData(connectionId, schema, tableName, {
       page, limit, orderBy: sortCol, orderDir: sortDir,
       filter: filter || undefined,
     })
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .then(result => {
+        if (reqId !== loadReqRef.current) return;
+        setData(result);
+      })
+      .catch(e => {
+        if (reqId !== loadReqRef.current) return;
+        setError(e.message);
+      })
+      .finally(() => {
+        if (reqId === loadReqRef.current) setLoading(false);
+      });
   }, [connectionId, schema, tableName, page, limit, sortCol, sortDir, filter]);
 
   useEffect(() => { load(); }, [load]);
@@ -138,7 +158,6 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
         setParts.push(`"${c.col}" = :${setKey}`);
         binds[setKey] = c.newVal;
       });
-      // PK 바인드는 첫 번째 변경에서 추출
       const firstBinds = rowChanges[0].binds;
       Object.entries(firstBinds).forEach(([k, v]) => {
         if (k.startsWith('pk_')) binds[k] = v;
@@ -179,10 +198,18 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
   }
 
   const totalPages = data ? Math.ceil(data.total / limit) : 1;
-  const editableColumns = canEdit && data
-    ? new Set(data.columns.filter(c => !pkColumns.includes(c)))
-    : new Set();
-  const pendingCellKeys = new Set(pendingChanges.map(c => c.key));
+
+  // Memoize to avoid creating new Set instances on every render (breaks React.memo in DataGrid)
+  const editableColumns = useMemo(
+    () => canEdit && data
+      ? new Set(data.columns.filter(c => !pkColumns.includes(c)))
+      : new Set(),
+    [canEdit, data, pkColumns],
+  );
+  const pendingCellKeys = useMemo(
+    () => new Set(pendingChanges.map(c => c.key)),
+    [pendingChanges],
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
@@ -192,9 +219,9 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
         <div style={{
           position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
           zIndex: 9999, padding: '8px 18px', borderRadius: 6, fontSize: 13, fontWeight: 500,
-          background: toast.type === 'success' ? '#1e4d2b' : '#4d1e1e',
-          color: toast.type === 'success' ? '#7ec87e' : '#f07070',
-          border: `1px solid ${toast.type === 'success' ? '#3a7a4a' : '#7a3a3a'}`,
+          background: toast.type === 'success' ? 'var(--success-dim)' : 'var(--danger-dim)',
+          color: toast.type === 'success' ? 'var(--success)' : 'var(--danger)',
+          border: `1px solid ${toast.type === 'success' ? 'var(--success-dim)' : 'var(--danger-dim)'}`,
           boxShadow: '0 4px 12px rgba(0,0,0,0.4)', pointerEvents: 'none',
         }}>
           {toast.type === 'success' ? '✓ ' : '✕ '}{toast.msg}
@@ -253,7 +280,8 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
               <button onClick={doExecute}
                 style={{
                   padding: '5px 18px', fontSize: 13, fontWeight: 700,
-                  background: '#2e7d32', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer',
+                  background: 'var(--success-dim)', color: 'var(--success)',
+                  border: '1px solid var(--success-dim)', borderRadius: 4, cursor: 'pointer',
                 }}>
                 ▶ 실행
               </button>
@@ -268,7 +296,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
         borderBottom: '1px solid var(--border)',
         display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, flexWrap: 'wrap',
       }}>
-        <button className="btn-secondary" onClick={load} disabled={executing}
+        <button className="btn-secondary" onClick={load} disabled={loading || executing}
           style={{ padding: '2px 8px', flexShrink: 0 }}>↻ 새로고침</button>
 
         <div style={{ display: 'flex', gap: 4, flex: 1, minWidth: 200 }}>
@@ -291,6 +319,12 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
         </div>
 
         {data && <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>총 {data.total.toLocaleString()}행</span>}
+        {canEdit && !loading && (
+          <span style={{ color: 'var(--text-dim)', fontSize: 11, flexShrink: 0 }}>PK 컬럼 제외 편집 가능</span>
+        )}
+        {isTable && !loading && !hasPk && (
+          <span style={{ color: 'var(--warning)', fontSize: 11, flexShrink: 0 }}>PK 없음 - 읽기 전용</span>
+        )}
 
         {(loading || executing) && <span className="spinner" />}
       </div>
@@ -355,7 +389,7 @@ export default function DataTab({ connectionId, schema, tableName, objectType })
                     {c.oldVal == null ? <em style={{ opacity: 0.5 }}>null</em> : String(c.oldVal)}
                   </td>
                   <td style={{ padding: '2px 6px', color: 'var(--text-dim)' }}>→</td>
-                  <td style={{ padding: '2px 6px', color: '#7ec87e', fontFamily: 'var(--code-font)' }}>
+                  <td style={{ padding: '2px 6px', color: 'var(--success)', fontFamily: 'var(--code-font)' }}>
                     {c.newVal == null ? <em style={{ opacity: 0.5 }}>null</em> : String(c.newVal)}
                   </td>
                   <td style={{ padding: '2px 4px' }}>

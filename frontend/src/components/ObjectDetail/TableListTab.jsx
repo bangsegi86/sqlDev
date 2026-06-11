@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { api } from '../../api/client.js';
 import DataGrid from '../Common/DataGrid.jsx';
 
@@ -120,6 +120,11 @@ export default function TableListTab({ connectionId, schema }) {
 
   const hasRename = pendingChanges.some(c => c.field === 'TABLE_NAME');
 
+  const pendingCellKeys = useMemo(
+    () => new Set(pendingChanges.map(c => c.key)),
+    [pendingChanges],
+  );
+
   async function doExecute() {
     const stmts = buildAllDDL();
     setExecuting(true); setConfirmOpen(false);
@@ -150,9 +155,9 @@ export default function TableListTab({ connectionId, schema }) {
         <div style={{
           position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
           zIndex: 9999, padding: '8px 18px', borderRadius: 6, fontSize: 13, fontWeight: 500,
-          background: toast.type === 'success' ? '#1e4d2b' : '#4d1e1e',
-          color: toast.type === 'success' ? '#7ec87e' : '#f07070',
-          border: `1px solid ${toast.type === 'success' ? '#3a7a4a' : '#7a3a3a'}`,
+          background: toast.type === 'success' ? 'var(--success-dim)' : 'var(--danger-dim)',
+          color: toast.type === 'success' ? 'var(--success)' : 'var(--danger)',
+          border: `1px solid ${toast.type === 'success' ? 'var(--success-dim)' : 'var(--danger-dim)'}`,
           boxShadow: '0 4px 12px rgba(0,0,0,0.4)', pointerEvents: 'none',
         }}>
           {toast.type === 'success' ? '✓ ' : '✕ '}{toast.msg}
@@ -217,7 +222,7 @@ export default function TableListTab({ connectionId, schema }) {
           editableColumns={EDITABLE_COLS}
           primaryKeyColumns={[]}
           onCellEdit={handleCellEdit}
-          pendingCellKeys={new Set(pendingChanges.map(c => c.key))}
+          pendingCellKeys={pendingCellKeys}
           onSort={handleSort}
           sortColumn={sortCol}
           sortDir={sortDir}

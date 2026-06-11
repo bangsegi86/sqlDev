@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export function useColResize(headers) {
   const [colWidths, setColWidths] = useState({});
   const [menu, setMenu] = useState(null); // { x, y }
   const hasWidths = Object.keys(colWidths).length > 0;
+  const rafRef = useRef(null);  // pending requestAnimationFrame id for resize throttle
 
   const openMenu = useCallback((e) => {
     e.preventDefault();
@@ -52,10 +53,21 @@ export function useColResize(headers) {
     e.stopPropagation();
     const startX = e.clientX;
     const startW = e.currentTarget.parentElement.offsetWidth;
+
     function onMove(ev) {
-      setColWidths(prev => ({ ...prev, [header]: Math.max(40, startW + ev.clientX - startX) }));
+      const newW = Math.max(40, startW + ev.clientX - startX);
+      // Throttle state updates to one per animation frame to avoid excessive re-renders
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        setColWidths(prev => ({ ...prev, [header]: newW }));
+      });
     }
     function onUp() {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     }

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from './ColContextMenu.jsx';
 
@@ -46,27 +46,38 @@ const DataGrid = forwardRef(function DataGrid({
     setThWidths(widths);
   }, [columns]);
 
-  // Normalize editableColumns to a Set
-  const editableSet = editableColumns
-    ? (editableColumns instanceof Set ? editableColumns : new Set(editableColumns))
-    : new Set();
+  // Memoize to avoid recreating Sets/objects every render (would defeat React.memo in DataRow)
+  const editableSet = useMemo(
+    () => editableColumns
+      ? (editableColumns instanceof Set ? editableColumns : new Set(editableColumns))
+      : new Set(),
+    [editableColumns],
+  );
 
-  const pkSet    = new Set(primaryKeyColumns || []);
+  const pkSet    = useMemo(() => new Set(primaryKeyColumns || []), [primaryKeyColumns]);
   const hasPkCols = pkSet.size > 0;
 
   // Compute frozen PK column left offsets (only when frozenPkCols toggle is on)
-  const colFrozenLeft = {};
-  let lastFrozenPkCol = null;
-  if (frozenPkCols && hasPkCols) {
+  const colFrozenLeft = useMemo(() => {
+    if (!frozenPkCols || !hasPkCols) return {};
+    const result = {};
     let offset = ROW_NUM_WIDTH;
     for (const col of columns) {
       if (pkSet.has(col)) {
-        colFrozenLeft[col] = offset;
+        result[col] = offset;
         offset += hasWidths ? (colWidths[col] || 100) : (thWidths[col] || 120);
-        lastFrozenPkCol = col;
       }
     }
-  }
+    return result;
+  }, [frozenPkCols, hasPkCols, columns, pkSet, hasWidths, colWidths, thWidths]);
+
+  const lastFrozenPkCol = useMemo(() => {
+    for (let i = columns.length - 1; i >= 0; i--) {
+      if (columns[i] in colFrozenLeft) return columns[i];
+    }
+    return null;
+  }, [colFrozenLeft, columns]);
+
   const hasFrozenPkCols = lastFrozenPkCol !== null;
 
   const handleCellClick = useCallback((rowIdx, col) => {

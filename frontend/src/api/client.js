@@ -1,12 +1,22 @@
 const BASE = '/api';
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
-  const data = await res.json();
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      ...options,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (e) {
+    throw new Error(`네트워크 오류: ${e.message}`);
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`서버 응답 오류 (HTTP ${res.status})`);
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -39,7 +49,6 @@ export const api = {
   getTableReferences: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/references`),
   getIndexes: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/indexes`),
   getSchemaErd: (id, schema) => request(`/oracle/${id}/erd/${encodeURIComponent(schema)}`),
-  getIndexes: (id, schema, table) => request(`/oracle/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/indexes`),
   getViewDDL: (id, schema, view) => request(`/oracle/${id}/views/${encodeURIComponent(schema)}/${encodeURIComponent(view)}/ddl`),
   getSource: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}`),
   getObjectProperties: (id, schema, type, name) => request(`/oracle/${id}/source/${encodeURIComponent(schema)}/${type}/${encodeURIComponent(name)}/properties`),
@@ -107,9 +116,6 @@ export const api = {
   },
 
   getBuildVersion: () => request('/build-version'),
-
-  getSessions: (id) => request(`/oracle/${id}/sessions`),
-  getLocks: (id) => request(`/oracle/${id}/locks`),
 
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: data }),
