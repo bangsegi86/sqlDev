@@ -624,14 +624,28 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   const tmpName = `${tableName.slice(0, 30 - suffix.length)}${suffix}`;
 
   // ── Parallel metadata queries ──────────────────────────────
+  // VIRTUAL_COLUMN exists in Oracle 11g+; fall back to 'NO' for pre-11g
+  const colPromise = execute(id,
+    `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
+            VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
+     FROM ALL_TAB_COLUMNS
+     WHERE OWNER = :schema AND TABLE_NAME = :table
+     ORDER BY COLUMN_ID`,
+    { schema, table: tableName }).catch(e => {
+    if (e.message && e.message.includes('ORA-00904')) {
+      return execute(id,
+        `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
+                'NO' AS VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
+         FROM ALL_TAB_COLUMNS
+         WHERE OWNER = :schema AND TABLE_NAME = :table
+         ORDER BY COLUMN_ID`,
+        { schema, table: tableName });
+    }
+    throw e;
+  });
+
   const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult, tblCmtResult, trigResult] = await Promise.all([
-    execute(id,
-      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
-              VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
-       FROM ALL_TAB_COLUMNS
-       WHERE OWNER = :schema AND TABLE_NAME = :table
-       ORDER BY COLUMN_ID`,
-      { schema, table: tableName }),
+    colPromise,
 
     execute(id,
       `SELECT c.CONSTRAINT_NAME, c.CONSTRAINT_TYPE, c.STATUS, c.GENERATED,
