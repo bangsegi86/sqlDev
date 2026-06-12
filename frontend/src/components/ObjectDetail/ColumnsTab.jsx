@@ -3,6 +3,10 @@ import { api } from '../../api/client.js';
 import { useColResize } from '../../hooks/useColResize.js';
 import ColContextMenu from '../Common/ColContextMenu.jsx';
 import ColumnReorderModal from './ColumnReorderModal.jsx';
+import {
+  buildSelectTemplate, buildInsertTemplate, buildUpdateTemplate,
+  buildDeleteTemplate, buildMergeTemplate,
+} from '../../utils/sqlTemplates.js';
 
 const HEADERS = ['#', 'Column Name', 'Type', 'Length', 'Nullable', 'Default', 'Key', 'Comment'];
 
@@ -11,6 +15,7 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
   const [loading, setLoading] = useState(true);
   const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState('');
+  const [copiedBtn, setCopiedBtn] = useState(null);
   const containerRef = useRef(null);
 
   const [selRow, setSelRow] = useState(null);
@@ -91,6 +96,16 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
     fitToScreen(containerRef.current?.clientWidth ?? 600, 0);
   }
 
+  async function copyTemplate(buildFn, btnKey) {
+    if (!columns.length) return;
+    const sql = buildFn(schema, tableName, columns);
+    try {
+      await navigator.clipboard.writeText(sql);
+      setCopiedBtn(btnKey);
+      setTimeout(() => setCopiedBtn(null), 1500);
+    } catch { /* ignore */ }
+  }
+
   const w = h => colWidths[h] ? { width: colWidths[h], minWidth: colWidths[h] } : {};
 
   // Row cell values for each column header
@@ -112,13 +127,37 @@ export default function ColumnsTab({ connectionId, schema, tableName, objectType
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {objectType !== 'VIEW' && objectType !== 'MATERIALIZED VIEW' && columns.length > 0 && (
-        <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6 }}>
-          <button
-            className="btn-secondary"
-            style={{ padding: '2px 8px', fontSize: 11 }}
-            onClick={() => setReorderOpen(true)}
-          >⇅ 컬럼 순서 변경</button>
+      {columns.length > 0 && (
+        <div style={{ padding: '4px 8px', background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* SQL 템플릿 복사 */}
+          <span style={{ fontSize: 10, color: 'var(--text-dim)', marginRight: 2 }}>SQL 복사</span>
+          {[
+            { key: 'select', label: 'SELECT', fn: buildSelectTemplate },
+            { key: 'insert', label: 'INSERT', fn: buildInsertTemplate },
+            { key: 'update', label: 'UPDATE', fn: buildUpdateTemplate },
+            { key: 'delete', label: 'DELETE', fn: buildDeleteTemplate },
+            { key: 'merge',  label: 'MERGE',  fn: buildMergeTemplate  },
+          ].map(({ key, label, fn }) => (
+            <button
+              key={key}
+              className="btn-secondary"
+              style={{ padding: '2px 8px', fontSize: 11 }}
+              onClick={() => copyTemplate(fn, key)}
+            >
+              {copiedBtn === key ? '✓ 복사됨' : label}
+            </button>
+          ))}
+
+          {objectType !== 'VIEW' && objectType !== 'MATERIALIZED VIEW' && (
+            <>
+              <div style={{ width: 1, height: 14, background: 'var(--border)', margin: '0 2px' }} />
+              <button
+                className="btn-secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={() => setReorderOpen(true)}
+              >⇅ 컬럼 순서 변경</button>
+            </>
+          )}
         </div>
       )}
 
