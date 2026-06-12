@@ -607,8 +607,8 @@ function buildColTypePart(col) {
   return dt;
 }
 
-function buildColDef(col) {
-  if (col.VIRTUAL_COLUMN === 'YES') {
+function buildColDef(col, virtualColSet) {
+  if (virtualColSet && virtualColSet.has(col.COLUMN_NAME)) {
     const expr = col.DATA_DEFAULT ? col.DATA_DEFAULT.trim() : 'NULL';
     return `  ${col.COLUMN_NAME.padEnd(32)}GENERATED ALWAYS AS (${expr}) VIRTUAL`;
   }
@@ -624,28 +624,25 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   const tmpName = `${tableName.slice(0, 30 - suffix.length)}${suffix}`;
 
   // ── Parallel metadata queries ──────────────────────────────
-  // VIRTUAL_COLUMN exists in Oracle 11g+; fall back to 'NO' for pre-11g
-  const colPromise = execute(id,
-    `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
-            VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
-     FROM ALL_TAB_COLUMNS
-     WHERE OWNER = :schema AND TABLE_NAME = :table
-     ORDER BY COLUMN_ID`,
-    { schema, table: tableName }).catch(e => {
-    if (e.message && e.message.includes('ORA-00904')) {
-      return execute(id,
-        `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
-                'NO' AS VIRTUAL_COLUMN, CHAR_USED, CHAR_LENGTH
-         FROM ALL_TAB_COLUMNS
-         WHERE OWNER = :schema AND TABLE_NAME = :table
-         ORDER BY COLUMN_ID`,
-        { schema, table: tableName });
-    }
-    throw e;
-  });
+  // Don't use ALL_TAB_COLUMNS.VIRTUAL_COLUMN directly: in certain Oracle
+  // environments (JDBC bridge, restricted users) that column causes ORA-00904.
+  // Instead, query ALL_VIRTUAL_COLUMNS separately (Oracle 11g+).
+  // Fall back to empty set if the view doesn't exist (pre-11g) or is inaccessible.
+  const virtualColPromise = execute(id,
+    `SELECT COLUMN_NAME FROM ALL_VIRTUAL_COLUMNS
+     WHERE OWNER = :schema AND TABLE_NAME = :table`,
+    { schema, table: tableName }
+  ).then(r => new Set(r.rows.map(row => row.COLUMN_NAME)))
+   .catch(() => new Set());
 
-  const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult, tblCmtResult, trigResult] = await Promise.all([
-    colPromise,
+  const [colResult, conResult, refFkResult, idxResult, cmtResult, grantResult, tblCmtResult, trigResult, virtualColSet] = await Promise.all([
+    execute(id,
+      `SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION, DATA_SCALE, NULLABLE, DATA_DEFAULT,
+              CHAR_USED, CHAR_LENGTH
+       FROM ALL_TAB_COLUMNS
+       WHERE OWNER = :schema AND TABLE_NAME = :table
+       ORDER BY COLUMN_ID`,
+      { schema, table: tableName }),
 
     execute(id,
       `SELECT c.CONSTRAINT_NAME, c.CONSTRAINT_TYPE, c.STATUS, c.GENERATED,
@@ -723,6 +720,8 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
        FROM ALL_TRIGGERS
        WHERE OWNER = :schema AND TABLE_NAME = :table`,
       { schema, table: tableName }).catch(() => ({ rows: [] })),
+
+    virtualColPromise,
   ]);
 
   // Try to get CHECK constraint conditions (LONG type in old Oracle; wrap with try-catch)
@@ -787,10 +786,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   // Column definition map
   const colDefs = Object.fromEntries(colResult.rows.map(c => [c.COLUMN_NAME, c]));
 
-  // Separate virtual and real columns
-  const virtualColSet = new Set(
-    colResult.rows.filter(c => c.VIRTUAL_COLUMN === 'YES').map(c => c.COLUMN_NAME)
-  );
+  // virtualColSet comes from ALL_VIRTUAL_COLUMNS query (Promise.all above)
   const allCols = colResult.rows.map(c => c.COLUMN_NAME);
   const orderedCols = newColumnOrder.filter(c => allCols.includes(c));
   // Add any missing columns at the end (defensive)
@@ -837,7 +833,7 @@ export async function generateColumnReorderScript(id, schema, tableName, newColu
   ln(`-- [Step 2] 임시 테이블 생성 (새 컬럼 순서)`);
   ln(`CREATE TABLE ${qSchema}.${qTmp} (`);
   const colLines = orderedCols.map((cname, idx) => {
-    const def = buildColDef(colDefs[cname]);
+    const def = buildColDef(colDefs[cname], virtualColSet);
     return def + (idx < orderedCols.length - 1 ? ',' : '');
   });
   for (const cl of colLines) ln(cl);
