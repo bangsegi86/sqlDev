@@ -287,38 +287,6 @@ export default function ObjectExplorer() {
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 1 }}>OBJECTS</span>
       </div>
 
-      {/* Selection banner */}
-      {selCount > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
-          background: 'rgba(79,193,255,0.12)', borderBottom: '1px solid var(--border)', flexShrink: 0,
-          flexWrap: 'wrap',
-        }}>
-          <span style={{ fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700, whiteSpace: 'nowrap' }}>
-            {selCount}개 선택 · {TYPE_LABELS[sel.type] || sel.type}
-          </span>
-          <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
-            {sel.type === 'TABLE' && (
-              <button
-                className="btn-secondary"
-                style={{ padding: '2px 8px', fontSize: 11 }}
-                onClick={() => setSpecModal({ schema: sel.schema, tables: selNames })}
-              >📑 명세서</button>
-            )}
-            <button
-              className="btn-secondary"
-              style={{ padding: '2px 8px', fontSize: 11 }}
-              onClick={() => setScriptModal({ schema: sel.schema, type: sel.type, names: selNames })}
-            >📄 스크립트</button>
-            <button
-              onClick={() => setSel({ schema: null, type: null, names: new Set() })}
-              title="선택 해제"
-              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}
-            >✕</button>
-          </div>
-        </div>
-      )}
-
       {/* Schema filter */}
       <div style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', background: 'var(--bg-sidebar)', flexShrink: 0 }}>
         <FilterInput placeholder="스키마 필터..." value={schemaFilter} onChange={setSchemaFilter} />
@@ -428,6 +396,38 @@ export default function ObjectExplorer() {
           );
         })}
       </div>
+
+      {/* Selection banner — bottom of tree */}
+      {selCount > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px',
+          background: 'rgba(79,193,255,0.12)', borderTop: '1px solid var(--border)', flexShrink: 0,
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 11, color: 'var(--accent-bright)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            {selCount}개 선택 · {TYPE_LABELS[sel.type] || sel.type}
+          </span>
+          <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
+            {sel.type === 'TABLE' && (
+              <button
+                className="btn-secondary"
+                style={{ padding: '2px 8px', fontSize: 11 }}
+                onClick={() => setSpecModal({ schema: sel.schema, tables: selNames })}
+              >📑 명세서</button>
+            )}
+            <button
+              className="btn-secondary"
+              style={{ padding: '2px 8px', fontSize: 11 }}
+              onClick={() => setScriptModal({ schema: sel.schema, type: sel.type, names: selNames })}
+            >📄 스크립트</button>
+            <button
+              onClick={() => setSel({ schema: null, type: null, names: new Set() })}
+              title="선택 해제"
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 13, padding: '0 2px' }}
+            >✕</button>
+          </div>
+        </div>
+      )}
 
       {/* Right-click context menu */}
       {ctxMenu && (
