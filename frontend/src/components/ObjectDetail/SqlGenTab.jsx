@@ -1,12 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { useCopy } from '../../utils/clipboard.js';
+import {
+  buildSelectTemplate,
+  buildInsertTemplate,
+  buildUpdateTemplate,
+  buildDeleteTemplate,
+  buildMergeTemplate,
+} from '../../utils/sqlTemplates.js';
 
 export default function SqlGenTab({ connectionId, schema, tableName }) {
   const [columns, setColumns] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeStmt, setActiveStmt] = useState('insert');
+  const [activeStmt, setActiveStmt] = useState('select');
 
   useEffect(() => {
     setLoading(true); setError('');
@@ -20,20 +27,17 @@ export default function SqlGenTab({ connectionId, schema, tableName }) {
   if (error) return <div className="error-pane"><span className="error-pane-msg">{error}</span></div>;
   if (!columns) return null;
 
-  const pkCols = columns.filter(c => c.IS_PK === 'Y');
-  const nonPkCols = columns.filter(c => c.IS_PK !== 'Y');
-  const fullName = `${schema}.${tableName}`;
-
   const stmts = [
-    { id: 'insert', label: 'INSERT', sql: genInsert(fullName, columns) },
-    { id: 'update', label: 'UPDATE', sql: genUpdate(fullName, pkCols, nonPkCols, columns) },
-    { id: 'merge',  label: 'MERGE',  sql: genMerge(fullName, pkCols, nonPkCols, columns) },
+    { id: 'select', label: 'SELECT', sql: buildSelectTemplate(schema, tableName, columns) },
+    { id: 'insert', label: 'INSERT', sql: buildInsertTemplate(schema, tableName, columns) },
+    { id: 'update', label: 'UPDATE', sql: buildUpdateTemplate(schema, tableName, columns) },
+    { id: 'delete', label: 'DELETE', sql: buildDeleteTemplate(schema, tableName, columns) },
+    { id: 'merge',  label: 'MERGE',  sql: buildMergeTemplate(schema, tableName, columns) },
   ];
   const current = stmts.find(s => s.id === activeStmt);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Toolbar */}
       <div style={{
         padding: '4px 8px', background: 'var(--bg-panel)',
         borderBottom: '1px solid var(--border)',
@@ -58,7 +62,6 @@ export default function SqlGenTab({ connectionId, schema, tableName }) {
         <CopyBtn text={current?.sql || ''} />
       </div>
 
-      {/* SQL output */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         <pre style={{
           margin: 0, padding: 14,
@@ -82,128 +85,7 @@ function CopyBtn({ text }) {
       onClick={() => copyFn(text)}
       style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 11, minWidth: 56 }}
     >
-      {copied ? '✓ 복사됨' : '📋 복사'}
+      {copied ? '✓ 복사됨' : '복사'}
     </button>
   );
-}
-
-// ── SQL generators ──────────────────────────────────────────────────────────────
-
-function bindVar(name) { return ':' + name.toLowerCase(); }
-
-function pad(name, maxLen) { return name.padEnd(maxLen); }
-
-function genInsert(fullName, cols) {
-  if (!cols.length) return `INSERT INTO ${fullName} (...) VALUES (...);`;
-
-  const maxLen = Math.max(...cols.map(c => c.COLUMN_NAME.length));
-  const colLines = cols.map((c, i) =>
-    `  ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
-  ).join('\n');
-  const valLines = cols.map((c, i) =>
-    `  ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxLen + 1)}`
-  ).join('\n');
-
-  return [
-    `INSERT INTO ${fullName}`,
-    `(`,
-    colLines,
-    `)`,
-    `VALUES`,
-    `(`,
-    valLines,
-    `);`,
-  ].join('\n');
-}
-
-function genUpdate(fullName, pkCols, nonPkCols, allCols) {
-  const setCols = nonPkCols.length > 0 ? nonPkCols : allCols;
-  const maxSet = Math.max(...setCols.map(c => c.COLUMN_NAME.length));
-
-  const setLines = setCols.map((c, i) =>
-    `${i === 0 ? '   SET' : '      ,'} ${pad(c.COLUMN_NAME, maxSet)} = ${pad(bindVar(c.COLUMN_NAME), maxSet + 1)}`
-  ).join('\n');
-
-  if (!pkCols.length) {
-    return [
-      `UPDATE ${fullName}`,
-      setLines,
-      ` WHERE 1=1  -- PK 컬럼이 없습니다. WHERE 조건을 직접 지정하세요`,
-      `;`,
-    ].join('\n');
-  }
-
-  const maxWhere = Math.max(...pkCols.map(c => c.COLUMN_NAME.length));
-  const whereLines = pkCols.map((c, i) =>
-    `${i === 0 ? ' WHERE' : '   AND'} ${pad(c.COLUMN_NAME, maxWhere)} = ${bindVar(c.COLUMN_NAME)}`
-  ).join('\n');
-
-  return [
-    `UPDATE ${fullName}`,
-    setLines,
-    whereLines,
-    `;`,
-  ].join('\n');
-}
-
-function genMerge(fullName, pkCols, nonPkCols, allCols) {
-  const T = 'T';
-
-  if (!pkCols.length) {
-    return [
-      `-- PK 컬럼이 없습니다. ON 조건을 직접 지정하세요`,
-      `MERGE INTO ${fullName} ${T}`,
-      `USING DUAL`,
-      `   ON (1=1)`,
-      ` WHEN MATCHED THEN`,
-      `   UPDATE SET ...`,
-      ` WHEN NOT MATCHED THEN`,
-      `   INSERT (...)`,
-      `   VALUES (...)`,
-      `;`,
-    ].join('\n');
-  }
-
-  // ON: PK 조건
-  const maxPk = Math.max(...pkCols.map(c => c.COLUMN_NAME.length));
-  const onLines = pkCols.map((c, i) =>
-    `       ${i === 0 ? '   ' : 'AND '}${T}.${pad(c.COLUMN_NAME, maxPk)} = ${bindVar(c.COLUMN_NAME)}`
-  ).join('\n');
-
-  // UPDATE SET: PK 제외 전체 컬럼
-  const updCols = nonPkCols.length > 0 ? nonPkCols : allCols;
-  const maxUpd = Math.max(...updCols.map(c => c.COLUMN_NAME.length));
-  const updLines = updCols.map((c, i) =>
-    `          ${i === 0 ? 'SET' : '  ,'} ${T}.${pad(c.COLUMN_NAME, maxUpd)} = ${pad(bindVar(c.COLUMN_NAME), maxUpd + 1)}`
-  ).join('\n');
-
-  // INSERT: 전체 컬럼
-  const maxIns = Math.max(...allCols.map(c => c.COLUMN_NAME.length));
-  const insColLines = allCols.map((c, i) =>
-    `          ${i === 0 ? ' ' : ','} ${c.COLUMN_NAME}`
-  ).join('\n');
-  const insValLines = allCols.map((c, i) =>
-    `          ${i === 0 ? ' ' : ','} ${pad(bindVar(c.COLUMN_NAME), maxIns + 1)}`
-  ).join('\n');
-
-  return [
-    `MERGE INTO ${fullName} ${T}`,
-    `USING DUAL`,
-    `   ON (`,
-    onLines,
-    `       )`,
-    ` WHEN MATCHED THEN`,
-    `   UPDATE`,
-    updLines,
-    ` WHEN NOT MATCHED THEN`,
-    `   INSERT`,
-    `   (`,
-    insColLines,
-    `   )`,
-    `   VALUES`,
-    `   (`,
-    insValLines,
-    `   )`,
-    `;`,
-  ].join('\n');
 }
